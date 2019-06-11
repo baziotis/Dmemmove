@@ -1,8 +1,8 @@
-# Dmemcpy
+# Dmemmove
 
 This is part of my [Google Summer of Code project](https://summerofcode.withgoogle.com/organizations/6103365956665344/#5475582328963072), _Independency of D from the C Standard Library_.
 
-It is a public repository for the work on the `memcpy()` replacement.
+It is a public repository for the work on the `memmove()` replacement.
 
 ## Compile and Run
 `dmd bench.d Dmemmove.d -O -inline && ./bench average` (DMD - Optimized and Inlined)
