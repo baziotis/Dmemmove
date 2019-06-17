@@ -205,7 +205,6 @@ void main(string[] args)
     test!(S!54);
     test!(S!63);
     test!(S!64);
-    /*
     static foreach(i; 120..130)
     {
         test!(S!i);
@@ -218,7 +217,6 @@ void main(string[] args)
     {
         test!(S!i);
     }
-    */
     test!(S!3452);
     test!(S!6598);
     test!(S!14928);

@@ -33,120 +33,76 @@ void Cmemmove(T)(T *dst, const T *src)
 // IMPORTANT(stefanos): memmove is supposed to return the dest
 void Dmemmove(T)(T *dst, const T *src)
 {
-    static if (T.sizeof == 64) {
-        import core.simd: void16, loadUnaligned, storeUnaligned;
-        pragma(inline, true);
-        storeUnaligned(cast(void16*)(cast(void*)dst), loadUnaligned(cast(const void16*)(cast(void*)src)));
-        storeUnaligned(cast(void16*)(cast(void*)dst+16), loadUnaligned(cast(const void16*)(cast(void*)src+16)));
-        storeUnaligned(cast(void16*)(cast(void*)dst+32), loadUnaligned(cast(const void16*)(cast(void*)src+32)));
-        storeUnaligned(cast(void16*)(cast(void*)dst+48), loadUnaligned(cast(const void16*)(cast(void*)src+48)));
-        return;
-    } else {
-        asm pure nothrow @nogc {
-            naked;
-            mov     RDX, T.sizeof;
-            cmp     RDX, 64;
-            jb     LSMALL;
-            add     RSI, RDX;
-            add     RDI, RDX;
-            // IMPORTANT(stefanos): Align destination (i.e. the writes)
-            mov     ECX, EDI;
-            and     ECX, 0x1f;
-            je      L4;
-            vmovdqu YMM0, [RSI-0x20];
-            vmovdqu [RDI-0x20], YMM0;
-            // src -= mod
-            sub    RSI, RCX;
-            // dst -= mod
-            sub    RDI, RCX;
-            // n -= mod
-            sub    RDX, RCX;
-        align 16;
-        L4:
-            // Because of the above, (at least) the loads
-            // are 32-byte aligned.
-            vmovdqu YMM0, [RSI-0x20];
-            vmovdqu YMM1, [RSI-0x40];
-            vmovdqu YMM2, [RSI-0x60];
-            vmovdqu YMM3, [RSI-0x80];
+    import core.stdc.stdio: printf;
+    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
+    void *d = dst;
+    const(void) *s = src;
+    size_t n = T.sizeof;
 
-            vmovdqu [RDI-0x20], YMM0;
-            vmovdqu [RDI-0x40], YMM1;
-            vmovdqu [RDI-0x60], YMM2;
-            vmovdqu [RDI-0x80], YMM3;
-            sub    RSI, 128;
-            sub    RDI, 128;
-            sub    RDX, 128;
-            cmp    RDX, 128;
-            jge    L4;
-            vzeroupper;
-        L2:
-            test   RDX, RDX;
-            je     L3;
-            // if (n != 0)  -> copy the remaining < 128 bytes
-            vmovdqu YMM0, [RSI-0x20];
-            vmovdqu YMM1, [RSI-0x40];
-            vmovdqu [RDI-0x20], YMM0;
-            vmovdqu [RDI-0x40], YMM1;
-            neg     RDX;
-            add     RDX, 0x40;
-            add     RSI, RDX;
-            add     RDI, RDX;
-            vmovdqu YMM0, [RSI-0x20];
-            vmovdqu YMM1, [RSI-0x40];
-            vmovdqu [RDI-0x20], YMM0;
-            vmovdqu [RDI-0x40], YMM1;
-        L3:
-            vzeroupper;
-            ret;
-
-            // For less than 64. Hopefully, that will eventually be hanDLed
-            // statically.
-            
-            // This is much like a switch fall-through.
-        LSMALL:
-            test        EDX, 32;
-            jz          LSMALL_16;
-            sub         EDX, 32;
-            movups      XMM0, [RSI+RDX+0x10];
-            movups      XMM1, [RSI+RDX];
-            movups      [RDI+RDX+0x10], XMM0;
-            movups      [RDI+RDX], XMM1;
-
-            //vmovdqu     YMM0, [RSI+RDX];
-            //vmovdqu     [RDI+RDX], YMM0;
-        LSMALL_16:
-            test        EDX, 16;
-            jz          LSMALL_8;
-            sub         EDX, 16;
-            movups      XMM0, [RSI+RDX];
-            movups      [RDI+RDX], XMM0;
-        LSMALL_8:
-            test        EDX, 8;
-            jz          LSMALL_4;
-            sub         EDX, 8;
-            mov         RAX, [RSI+RDX];
-            mov         [RDI+RDX], RAX;
-        LSMALL_4:
-            test        EDX, 4;
-            jz          LSMALL_2;
-            sub         EDX, 4;
-            mov         EAX, [RSI+RDX];
-            mov         [RDI+RDX], EAX;
-            jz          LEND;
-        LSMALL_2:
-            test        EDX, 2;
-            jz          LSMALL_1;
-            sub         EDX, 2;
-            movzx       EAX, word ptr [RSI+RDX];
-            mov         word ptr [RDI+RDX], AX;
-        LSMALL_1:
-            test        EDX, 1;
-            jz          LEND;
-            movzx       EAX, byte ptr [RSI];
-            mov         byte ptr [RDI], AL;
-        LEND:
-            ret;
+    if (n < 128) {
+        if (n & 64) {
+            n -= 64;
+            storeUnaligned(cast(void16*)(d+n+0x30), loadUnaligned(cast(const void16*)(s+n+0x30)));
+            storeUnaligned(cast(void16*)(d+n+0x20), loadUnaligned(cast(const void16*)(s+n+0x20)));
+            storeUnaligned(cast(void16*)(d+n+0x10), loadUnaligned(cast(const void16*)(s+n+0x10)));
+            storeUnaligned(cast(void16*)(d+n), loadUnaligned(cast(const void16*)(s+n)));
         }
+        if (n & 32) {
+            n -= 32;
+            storeUnaligned(cast(void16*)(d+n+16), loadUnaligned(cast(const void16*)(s+n+16)));
+            storeUnaligned(cast(void16*)(d+n), loadUnaligned(cast(const void16*)(s+n)));
+        }
+        if (n & 16) {
+            n -= 16;
+            storeUnaligned(cast(void16*)(d+n), loadUnaligned(cast(const void16*)(s+n)));
+        }
+        if (n & 8) {
+            n -= 8;
+            *(cast(ulong*)(d+n)) = *(cast(const ulong*)(s+n));
+        }
+        if (n & 4) {
+            n -= 4;
+            *(cast(uint*)(d+n)) = *(cast(const uint*)(s+n));
+        }
+        if (n & 2) {
+            n -= 2;
+            *(cast(ushort*)(d+n)) = *(cast(const ushort*)(s+n));
+        }
+        if (n & 1) {
+            n -= 2;
+            *(cast(ubyte*)d) = *(cast(const ubyte*)s);
+        }
+        return;
+    }
+    s += n;
+    d += n;
+    uint mod = cast(ulong)d & 31;
+    if (mod) {
+        storeUnaligned(cast(void16*)(d-0x10), loadUnaligned(cast(const void16*)(s-0x10)));
+        storeUnaligned(cast(void16*)(d-0x20), loadUnaligned(cast(const void16*)(s-0x20)));
+        s -= mod;
+        d -= mod;
+        n -= mod;
+    }
+    while (n >= 128) {
+        *(cast(void32*)(d-0x20)) = *(cast(const void32*)(s-0x20));
+        *(cast(void32*)(d-0x40)) = *(cast(const void32*)(s-0x40));
+        *(cast(void32*)(d-0x60)) = *(cast(const void32*)(s-0x60));
+        *(cast(void32*)(d-0x80)) = *(cast(const void32*)(s-0x80));
+        s -= 128;
+        d -= 128;
+        n -= 128;
+    }
+
+    if (n) {
+        *(cast(void32*)(d-0x20)) = *(cast(const void32*)(s-0x20));
+        *(cast(void32*)(d-0x40)) = *(cast(const void32*)(s-0x40));
+        n = -n + 0x40;
+        s += n;
+        d += n;
+        storeUnaligned(cast(void16*)(d-16), loadUnaligned(cast(const void16*)(s-16)));
+        storeUnaligned(cast(void16*)(d-32), loadUnaligned(cast(const void16*)(s-32)));
+        storeUnaligned(cast(void16*)(d-48), loadUnaligned(cast(const void16*)(s-48)));
+        storeUnaligned(cast(void16*)(d-64), loadUnaligned(cast(const void16*)(s-64)));
     }
 }
