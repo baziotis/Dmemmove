@@ -194,6 +194,7 @@ void main(string[] args)
     // For performing benchmarks
     writeln("size(bytes) Cmemmove(GB/s) Dmemmove(GB/s)");
     stdout.flush();
+    /*
     test!(S!1);
     test!(S!3);
     test!(S!7);
@@ -204,6 +205,7 @@ void main(string[] args)
     test!(S!45);
     test!(S!54);
     test!(S!63);
+    */
     test!(S!64);
     static foreach(i; 120..130)
     {

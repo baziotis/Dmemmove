@@ -66,33 +66,9 @@ void Dmemmove(T)(T *dst, const T *src)
         }
         return;
     }
+    s += n;
+    d += n;
     if (n < 128) {
-        asm pure nothrow @nogc {
-            naked;
-            mov RSI, s;
-            mov RDI, d;
-            mov RDX, T.sizeof;
-            add RSI, RDX;
-            add RDI, RDX;
-            vmovdqu YMM1, [RSI-0x20];
-            vmovdqu YMM2, [RSI-0x40];
-
-            vmovdqu [RDI-0x20], YMM1;
-            vmovdqu [RDI-0x40], YMM2;
-            
-            sub RDX, 64;
-            sub RSI, RDX;
-            sub RDI, RDX;
-
-
-            vmovdqu YMM1, [RSI-0x20];
-            vmovdqu YMM2, [RSI-0x40];
-
-            vmovdqu [RDI-0x20], YMM1;
-            vmovdqu [RDI-0x40], YMM2;
-            ret;
-        }
-        /*
         storeUnaligned(cast(void16*)(d-0x10), loadUnaligned(cast(const void16*)(s-0x10)));
         storeUnaligned(cast(void16*)(d-0x20), loadUnaligned(cast(const void16*)(s-0x20)));
         storeUnaligned(cast(void16*)(d-0x30), loadUnaligned(cast(const void16*)(s-0x30)));
@@ -105,10 +81,7 @@ void Dmemmove(T)(T *dst, const T *src)
         storeUnaligned(cast(void16*)(d-0x30), loadUnaligned(cast(const void16*)(s-0x30)));
         storeUnaligned(cast(void16*)(d-0x40), loadUnaligned(cast(const void16*)(s-0x40)));
         return;
-        */
     }
-    s += n;
-    d += n;
     uint mod = cast(ulong)d & 31;
     if (mod) {
         storeUnaligned(cast(void16*)(d-0x10), loadUnaligned(cast(const void16*)(s-0x10)));
