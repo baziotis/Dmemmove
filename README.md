@@ -5,7 +5,7 @@ This is part of my [Google Summer of Code project](https://summerofcode.withgoog
 It is a public repository for the work on the `memmove()` replacement.
 
 ## Compile and Run
-`dmd bench.d Dmemmove.d -O -inline && ./bench average` (DMD - Optimized and Inlined)
+`dmd bench.d Dmemmove.d -O -inline -mcpu=avx && ./bench average` (DMD - Optimized and Inlined)
 
 ## Contact / Feedback
 An important reason that I published it so early (about 5 days of work) is to get feedback on different machines,
