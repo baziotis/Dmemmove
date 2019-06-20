@@ -123,25 +123,39 @@ void verify(T)(const T *a, const T *b)
 
 bool average;
 
-void test(T)()
+void testStatic(T)()
 {
     ubyte[80000] buf1;
     ubyte[80000] buf2;
 
-    ubyte *p = buf1.ptr;
-    ubyte *q = p;
-    
-    // NOTE(stefanos): Point them on the same buffer, with
-    // destination - source > T.sizeof.
-    q += T.sizeof / 2;
+    // TODO(stefanos): This should be a static foreach
+    for (int j = 0; j < 3; ++j) {
+        ubyte *p = buf1.ptr;
+        ubyte *q;
+
+        // Relatively aligned
+        if (j == 0) {
+            q = buf2.ptr;
+        } else {
+            q = p;
+            // src forward
+            if (j == 1)
+            {
+                p += T.sizeof / 2;
+            // dst forward
+            }
+            else
+            {
+                q += T.sizeof / 2;
+            }
+        }
 
 
-    double TotalGBperSec1 = 0.0;
-    double TotalGBperSec2 = 0.0;
-    enum alignments = 32;
+        double TotalGBperSec1 = 0.0;
+        double TotalGBperSec2 = 0.0;
+        enum alignments = 32;
 
-    foreach(i; 0..alignments)
-    {
+        foreach(i; 0..alignments)
         {
             T* d = cast(T*)(&q[i]);
             T* s = cast(T*)(&p[i]);
@@ -175,17 +189,126 @@ void test(T)()
                 stdout.flush();
             }
         }
-    }
 
-    if (average)
-    {
-        writeln(T.sizeof, " ", TotalGBperSec1 / alignments, " ", TotalGBperSec2 / alignments);
-        stdout.flush();
+        if (average)
+        {
+            write(T.sizeof, " ", TotalGBperSec1 / alignments, " ", TotalGBperSec2 / alignments);
+            if (j == 0) {
+                writeln(" - Relatively aligned");
+            } else if (j == 1) {
+                writeln(" - src forward");
+            } else {
+                writeln(" - dst forward");
+            }
+            stdout.flush();
+        }
     }
 }
 
-enum Aligned = true;
-enum MisAligned = false;
+Duration benchmark(T, alias f)(ref T[] dst, const ref T[] src, ulong* bytesCopied)
+{
+    enum iterations = 2^^20 / T.sizeof;
+    Duration result;
+
+    auto swt = StopWatch(AutoStart.yes);
+    swt.reset();
+    while(swt.peek().total!"msecs" < 50)
+    {
+        auto sw = StopWatch(AutoStart.yes);
+        sw.reset();
+        foreach (_; 0 .. iterations)
+        {
+            escape(cast(void*)dst.ptr);   // So optimizer doesn't remove code
+            f(dst, src);
+            escape(cast(void*)src.ptr);   // So optimizer doesn't remove code
+        }
+        result += sw.peek();
+        *bytesCopied += (iterations * T.sizeof);
+    }
+
+    return result;
+}
+
+
+
+void testDynamic(size_t n)
+{
+    ubyte[180000] buf1;
+    ubyte[180000] buf2;
+
+    // TODO(stefanos): This should be a static foreach
+    for (int j = 0; j < 3; ++j) {
+        double TotalGBperSec1 = 0.0;
+        double TotalGBperSec2 = 0.0;
+        enum alignments = 32;
+
+        foreach(i; 0..alignments)
+        {
+            ubyte[] p = buf1[i..i+n];
+            ubyte[] q;
+
+            // Relatively aligned
+            if (j == 0) {
+                q = buf2[i..i+n];
+            } else {
+                // src forward
+                if (j == 1)
+                {
+                    q = p[n/2..n/2+n];
+                // dst forward
+                }
+                else
+                {
+                    q = p;
+                    p = p[n/2..n/2+n];
+                }
+            }
+    
+
+            ulong bytesCopied1;
+            ulong bytesCopied2;
+            //init(q.ptr);
+            //init(p.ptr);
+            immutable d1 = benchmark!(ubyte, Cmemmove)(p, q, &bytesCopied1);
+            //verify(d, s);
+
+            //init(d);
+            //init(s);
+            immutable d2 = benchmark!(ubyte, Dmemmove)(p, q, &bytesCopied2);
+            //verify(d, s);
+
+            auto secs1 = (cast(double)(d1.total!"nsecs")) / 1_000_000_000.0;
+            auto secs2 = (cast(double)(d2.total!"nsecs")) / 1_000_000_000.0;
+            auto GB1 = (cast(double)bytesCopied1) / 1_000_000_000.0;
+            auto GB2 = (cast(double)bytesCopied2) / 1_000_000_000.0;
+            auto GBperSec1 = GB1 / secs1;
+            auto GBperSec2 = GB2 / secs2;
+            if (average)
+            {
+                TotalGBperSec1 += GBperSec1;
+                TotalGBperSec2 += GBperSec2;
+            }
+            else
+            {
+                writeln(n, " ", GBperSec1, " ", GBperSec2);
+                stdout.flush();
+            }
+        }
+
+        if (average)
+        {
+            write(n, " ", TotalGBperSec1 / alignments, " ", TotalGBperSec2 / alignments);
+            if (j == 0) {
+                writeln(" - Relatively aligned");
+            } else if (j == 1) {
+                writeln(" - src forward");
+            } else {
+                writeln(" - dst forward");
+            }
+            stdout.flush();
+        }
+    }
+}
 
 void main(string[] args)
 {
@@ -195,45 +318,45 @@ void main(string[] args)
     writeln("size(bytes) Cmemmove(GB/s) Dmemmove(GB/s)");
     stdout.flush();
     /*
-    test!(S!1);
-    test!(S!3);
-    test!(S!7);
-    test!(S!13);
-    test!(S!22);
-    test!(S!29);
-    test!(S!39);
-    test!(S!45);
-    test!(S!54);
-    test!(S!63);
-    */
-    test!(S!64);
+    testStatic!(S!1);
+    testStatic!(S!3);
+    testStatic!(S!7);
+    testStatic!(S!13);
+    testStatic!(S!22);
+    testStatic!(S!29);
+    testStatic!(S!39);
+    testStatic!(S!45);
+    testStatic!(S!54);
+    testStatic!(S!63);
+    testStatic!(S!64);
     static foreach(i; 120..130)
     {
-        test!(S!i);
+        testStatic!(S!i);
     }
     static foreach(i; 220..230)
     {
-        test!(S!i);
+        testStatic!(S!i);
     }
     static foreach(i; 720..730)
     {
-        test!(S!i);
+        testStatic!(S!i);
     }
-    test!(S!3452);
-    test!(S!6598);
-    test!(S!14928);
-    test!(S!27891);
-    test!(S!44032);
-    test!(S!55897);
-    test!(S!79394);
+    */
+    testStatic!(S!3452);
+    testStatic!(S!6598);
+    testStatic!(S!14928);
+    testStatic!(S!27891);
+    testStatic!(S!44032);
+    testStatic!(S!55897);
+    testStatic!(S!79394);
 
-    test!(S!256);
-    test!(S!512);
-    test!(S!1024);
-    test!(S!2048);
-    test!(S!4096);
-    test!(S!8192);
-    test!(S!16384);
-    test!(S!32768);
-    test!(S!65536);
+    testStatic!(S!256);
+    testStatic!(S!512);
+    testStatic!(S!1024);
+    testStatic!(S!2048);
+    testStatic!(S!4096);
+    testStatic!(S!8192);
+    testStatic!(S!16384);
+    testStatic!(S!32768);
+    testStatic!(S!65536);
 }
