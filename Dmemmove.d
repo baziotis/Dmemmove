@@ -69,6 +69,48 @@ void DmemcpyUnsafe(T)(T *dst, const T *src) @trusted
 }
 
 extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n) {
+    if (n < 16) {
+		if (n & 0x01) {
+			*cast(ubyte *)d = *cast(const ubyte *)s;
+            ++d;
+            ++s;
+		}
+		if (n & 0x02) {
+			*cast(ushort *)d = *cast(const ushort *)s;
+            d += 2;
+            s += 2;
+		}
+		if (n & 0x04) {
+			*cast(uint *)d = *cast(const uint *)s;
+            d += 4;
+            s += 4;
+		}
+		if (n & 0x08) {
+			*cast(ulong *)d = *cast(const ulong *)s;
+		}
+        return;
+    }
+    if (n <= 32) {
+        import core.simd: void16, storeUnaligned, loadUnaligned;
+        storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
+        storeUnaligned(cast(void16*)(d-16+n), loadUnaligned(cast(const void16*)(s-16+n)));
+        return;
+    }
+    // Write this in normal code when load/storeUnaligned are avaiable
+    // for void32
+    if (n <= 64) {
+        asm pure nothrow @nogc {
+            naked;
+            vmovdqu YMM0, [RSI];
+            vmovdqu [RDI], YMM0;
+            sub     RDX, 0x20;
+            add     RSI, RDX;
+            add     RDI, RDX;
+            vmovdqu YMM0, [RSI];
+            vmovdqu [RDI], YMM0;
+            ret;
+        }
+    }
     asm pure nothrow @nogc {
         naked;
         vmovdqu YMM0, [RSI];
