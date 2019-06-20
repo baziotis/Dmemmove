@@ -205,9 +205,10 @@ void testStatic(T)()
     }
 }
 
-Duration benchmark(T, alias f)(ref T[] dst, const ref T[] src, ulong* bytesCopied)
+Duration benchmark(T, alias f)(ref T[] dst, const ref T[] src, ulong *bytesCopied)
 {
-    enum iterations = 2^^20 / T.sizeof;
+    assert(dst.length == src.length);
+    size_t iterations = 2^^20 / dst.length;
     Duration result;
 
     auto swt = StopWatch(AutoStart.yes);
@@ -229,12 +230,43 @@ Duration benchmark(T, alias f)(ref T[] dst, const ref T[] src, ulong* bytesCopie
     return result;
 }
 
+void init(T)(ref T[] v)
+{
+    static if (is (T == float))
+    {
+        v = uniform(0.0f, 9_999_999.0f);
+    }
+    else static if (is(T == double))
+    {
+        v = uniform(0.0, 9_999_999.0);
+    }
+    else static if (is(T == real))
+    {
+        v = uniform(0.0L, 9_999_999.0L);
+    }
+    else
+    {
+        for(int i = 0; i < v.length; i++)
+        {
+            v[i] = uniform!byte;
+        }
+    }
+}
+
+void verify(T)(const ref T[] a, const ref T[] b)
+{
+    assert(a.length == b.length);
+    for(int i = 0; i < a.length; i++)
+    {
+        assert(a[i] == b[i]);
+    }
+}
 
 
 void testDynamic(size_t n)
 {
-    ubyte[180000] buf1;
-    ubyte[180000] buf2;
+    ubyte[80000] buf1;
+    ubyte[80000] buf2;
 
     // TODO(stefanos): This should be a static foreach
     for (int j = 0; j < 3; ++j) {
@@ -245,37 +277,38 @@ void testDynamic(size_t n)
         foreach(i; 0..alignments)
         {
             ubyte[] p = buf1[i..i+n];
-            ubyte[] q;
+            ubyte[] q = buf2[i..i+n];
 
             // Relatively aligned
-            if (j == 0) {
+            if (j == 0)
+            {
                 q = buf2[i..i+n];
-            } else {
+            }
+            else {
                 // src forward
                 if (j == 1)
                 {
-                    q = p[n/2..n/2+n];
+                    q = buf1[n/2..n/2+n];
                 // dst forward
                 }
                 else
                 {
                     q = p;
-                    p = p[n/2..n/2+n];
+                    p = buf1[n/2..n/2+n];
                 }
             }
-    
 
             ulong bytesCopied1;
             ulong bytesCopied2;
-            //init(q.ptr);
-            //init(p.ptr);
+            init(q);
+            init(p);
             immutable d1 = benchmark!(ubyte, Cmemmove)(p, q, &bytesCopied1);
-            //verify(d, s);
+            verify(q, p);
 
-            //init(d);
-            //init(s);
+            init(q);
+            init(p);
             immutable d2 = benchmark!(ubyte, Dmemmove)(p, q, &bytesCopied2);
-            //verify(d, s);
+            verify(q, p);
 
             auto secs1 = (cast(double)(d1.total!"nsecs")) / 1_000_000_000.0;
             auto secs2 = (cast(double)(d2.total!"nsecs")) / 1_000_000_000.0;
@@ -329,6 +362,7 @@ void main(string[] args)
     testStatic!(S!54);
     testStatic!(S!63);
     testStatic!(S!64);
+    */
     static foreach(i; 120..130)
     {
         testStatic!(S!i);
@@ -341,7 +375,6 @@ void main(string[] args)
     {
         testStatic!(S!i);
     }
-    */
     testStatic!(S!3452);
     testStatic!(S!6598);
     testStatic!(S!14928);

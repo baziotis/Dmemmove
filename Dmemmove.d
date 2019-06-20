@@ -69,125 +69,20 @@ void DmemcpyUnsafe(T)(T *dst, const T *src) @trusted
 }
 
 extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n) {
-    // GCC version
-    // Optimized to reach alignment.
-    // NOTE(stefanos): I reached more speed with the previous
-    // version, making it use AVX instructions.
     asm pure nothrow @nogc {
         naked;
-        mov RCX, RSI;
-        and RCX, 15;
-        je  L1000;
-        // if (mod) 
-        movdqu  XMM0,  [RSI];
-        movdqu  [RDI], XMM0;
-        mov     RAX, 16;
-        sub     RAX, RCX;
-        // s += 16 - mod1
-        add RSI, RAX;
-        // d += 16 - mod1
-        add RDI, RAX;
-        // n -= 16 - mod1
-        sub RDX, RAX;
-
-    L1000:
-        mov    RAX,RDI;
-        mov    RDI,RDX;
-        mov    RCX,0x3;
-        shr    RDI,0x6;
-        sub    RCX,RDI;
-        cmp    RCX,0x1;
-        je     L1;
-        jb     L4;
-        cmp    RCX,0x2;
-        je     L2;
-        mov    RCX,RAX;
-    L8:
-        mov    RDI,RDX;
-        mov    R8D,0x3;
-        shr    RDI,0x4;
-        sub    R8,RDI;
-        cmp    R8,0x1;
-        je     L3;
-        jb     L5;
-        cmp    R8,0x2;
-        jne    L6;
-    L9:
-        movdqu XMM0, [RSI];
-        movdqu  [RCX],XMM0;
-        sub    RDX,0x10;
-        add    RCX,0x10;
-        add    RSI,0x10;
-    L6:
-        test   RDX,RDX;
-        je     L7;
-        sub    RDX,0x10;
-        add    RSI,RDX;
-        add    RCX,RDX;
-        movdqu XMM0, [RSI];
-        movdqu  [RCX],XMM0;
-    L7:
-        nop    ;
+        vmovdqu YMM0, [RSI];
+        vmovdqu YMM1, [RSI+0x20];
+        vmovdqu [RDI], YMM0;
+        vmovdqu [RDI+0x20], YMM1;
+        sub     RDX, 0x40;
+        add     RSI, RDX;
+        add     RDI, RDX;
+        vmovdqu YMM0, [RSI];
+        vmovdqu YMM1, [RSI+0x20];
+        vmovdqu [RDI], YMM0;
+        vmovdqu [RDI+0x20], YMM1;
         ret;
-    L2:
-        mov    RCX,RAX;
-    L10:
-        movdqu XMM0, [RSI];
-        movdqu XMM1, [RSI+0x10];
-        movdqu XMM2, [RSI+0x20];
-        movdqu XMM3, [RSI+0x30];
-        movdqu  [RCX],XMM0;
-        movdqu  [RCX+0x10],XMM1;
-        movdqu  [RCX+0x20],XMM2;
-        movdqu  [RCX+0x30],XMM3;
-        sub    RDX,0x40;
-        add    RCX,0x40;
-        add    RSI,0x40;
-        jmp    L8;
-        nop    ;
-    L5:
-        movdqu XMM0, [RSI];
-        movdqu  [RCX],XMM0;
-        sub    RDX,0x10;
-        add    RCX,0x10;
-        add    RSI,0x10;
-    L3:
-        movdqu XMM0, [RSI];
-        movdqu  [RCX],XMM0;
-        sub    RDX,0x10;
-        add    RCX,0x10;
-        add    RSI,0x10;
-        jmp    L9;
-        nop    ;
-    L4:
-        movdqu XMM0, [RSI];
-        movdqu XMM1, [RSI+0x10];
-        movdqu XMM2, [RSI+0x20];
-        movdqu XMM3, [RSI+0x30];
-        movdqu  [RAX],XMM0;
-        movdqu  [RAX+0x10],XMM1;
-        movdqu  [RAX+0x20],XMM2;
-        movdqu  [RAX+0x30],XMM3;
-        sub    RDX,0x40;
-        lea    RCX,[RAX+0x40];
-        add    RSI,0x40;
-    L11:
-        movdqu XMM0, [RSI];
-        movdqu XMM1, [RSI+0x10];
-        movdqu XMM2, [RSI+0x20];
-        movdqu XMM3, [RSI+0x30];
-        movdqu  [RCX],XMM0;
-        movdqu  [RCX+0x10],XMM1;
-        movdqu  [RCX+0x20],XMM2;
-        movdqu  [RCX+0x30],XMM3;
-        sub    RDX,0x40;
-        add    RCX,0x40;
-        add    RSI,0x40;
-        jmp    L10;
-        nop    ;
-    L1:
-        mov    RCX,RAX;
-        jmp    L11;
     }
 }
 
@@ -463,25 +358,28 @@ void Dmemmove(T)(T *dst, const T *src) {
 
 /// DYNAMIC ///
 
-void Cmemmove(T)(ref T[] dst, const ref T[] src)
+void Cmemmove(T)( T[] dst, const  T[] src)
 {
     assert(dst.length == src.length);
     pragma(inline, true)
     memmove(dst.ptr, src.ptr, dst.length * T.sizeof);
 }
 
-void Dmemmove(T)(ref T[] dst, const ref T[] src) {
+import core.stdc.stdio: printf;
+
+void Dmemmove(T)( T[] dst, const  T[] src) {
     assert(dst.length == src.length);
     void *d = dst.ptr;
     const void *s = src.ptr;
     size_t n = dst.length * T.sizeof;
-    if ((cast(ulong)d - cast(ulong)s) < T.sizeof) {
+    if ((cast(ulong)d - cast(ulong)s) < n) {
         Dmemmove(d, s, n);
     } else {
         if (n < 256) {
             pragma(inline, true);
             Dmemcpy_small(d, s, n);
         } else {
+            pragma(inline, true);
             Dmemcpy_large(d, s, n);
         }
     }
