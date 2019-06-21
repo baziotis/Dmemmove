@@ -89,17 +89,17 @@ Duration benchmark(T, alias f)(T *dst, T *src, ulong* bytesCopied)
 
 void init(T)(T *v)
 {
-    static if (is (T == float))
+    static if (is(T == float))
     {
-        v = uniform(0.0f, 9_999_999.0f);
+        *v = uniform(0.0f, 9_999_999.0f);
     }
     else static if (is(T == double))
     {
-        v = uniform(0.0, 9_999_999.0);
+        *v = uniform(0.0, 9_999_999.0);
     }
     else static if (is(T == real))
     {
-        v = uniform(0.0L, 9_999_999.0L);
+        *v = uniform(0.0L, 9_999_999.0L);
     }
     else
     {
@@ -350,6 +350,17 @@ void main(string[] args)
     // For performing benchmarks
     writeln("size(bytes) Cmemmove(GB/s) Dmemmove(GB/s)");
     stdout.flush();
+    testStatic!(byte);
+    testStatic!(ubyte);
+    testStatic!(short);
+    testStatic!(ushort);
+    testStatic!(int);
+    testStatic!(uint);
+    testStatic!(long);
+    testStatic!(ulong);
+    testStatic!(float);
+    testStatic!(double);
+    testStatic!(real);
     /*
     testStatic!(S!1);
     testStatic!(S!3);
