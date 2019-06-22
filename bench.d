@@ -25,7 +25,7 @@ DEALINGS IN THE SOFTWARE.
 */
 
 import std.datetime.stopwatch;
-import Dmemmove: Dmemmove, Cmemmove;
+import Dmemmove: Dmemmove;
 import S_struct;
 import std.random;
 import std.stdio;
@@ -61,6 +61,36 @@ void clobber()
     {
         asm { "" : : : "memory"; }
     }
+}
+
+void Cmemmove(T)(T *dst, const T *src)
+{
+    import core.stdc.string: memmove;
+    pragma(inline, true)
+    memmove(dst, src, T.sizeof);
+}
+
+void Cmemmove(T)(T[] dst, const T[] src)
+{
+    import core.stdc.string: memmove;
+    assert(dst.length == src.length);
+    pragma(inline, true)
+    memmove(dst.ptr, src.ptr, dst.length * T.sizeof);
+}
+
+void Cmemcpy(T)(T *dst, const T *src)
+{
+    import core.stdc.string: memcpy;
+    pragma(inline, true)
+    memcpy(dst, src, T.sizeof);
+}
+
+void Cmemcpy(T)(T[] dst, const T[] src)
+{
+    import core.stdc.string: memcpy;
+    assert(dst.length == src.length);
+    pragma(inline, true)
+    memcpy(dst.ptr, src.ptr, dst.length * T.sizeof);
 }
 
 Duration benchmark(T, alias f)(T *dst, T *src, ulong* bytesCopied)

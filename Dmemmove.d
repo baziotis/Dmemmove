@@ -21,22 +21,13 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEalINGS IN THE SOFTWARE.
 */
 
-import core.stdc.string: memmove;
-import core.stdc.string;
 import S_struct;
 import std.traits;
-
 
 bool isPowerOf2(T)(T x)
     if (isIntegral!T)
 {
     return (x != 0) && ((x & (x - 1)) == 0);
-}
-
-void Cmemcpy(T)(T *dst, const T *src)
-{
-    pragma(inline, true)
-    memcpy(dst, src, T.sizeof);
 }
 
 void Dmemcpy(T)(T *dst, const T *src)
@@ -301,12 +292,6 @@ void Dmemcpy(T)(T *dst, const T *src)
     }
 }
 
-void Cmemmove(T)(T *dst, const T *src)
-{
-    pragma(inline, true)
-    memmove(dst, src, T.sizeof);
-}
-
 // IMPORTANT(stefanos): memmove is supposed to return the dest
 void Dmemmove(void *d, const(void) *s, size_t n)
 {
@@ -399,13 +384,6 @@ void Dmemmove(T)(T *dst, const T *src) {
 
 
 /// DYNAMIC ///
-
-void Cmemmove(T)( T[] dst, const  T[] src)
-{
-    assert(dst.length == src.length);
-    pragma(inline, true)
-    memmove(dst.ptr, src.ptr, dst.length * T.sizeof);
-}
 
 import core.stdc.stdio: printf;
 
