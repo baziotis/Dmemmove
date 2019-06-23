@@ -87,9 +87,21 @@ extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n) {
         storeUnaligned(cast(void16*)(d-16+n), loadUnaligned(cast(const void16*)(s-16+n)));
         return;
     }
-    // Write this in normal code when load/storeUnaligned are avaiable
+    // Write this in normal code when load/storeUnaligned are available
     // for void32
+
+	// NOTE(stefanos): Writing once the common code for Windows here is possible
+	// to result wi
     if (n <= 64) {
+		version (Windows) {
+			// Move to Posix registers due to different calling convention.
+			asm pure nothrow @nogc {
+				naked;
+				mov RDI, RCX;
+				mov RSI, RDX;
+				mov RDX, R8;
+			}
+		}
         asm pure nothrow @nogc {
             naked;
             vmovdqu YMM0, [RSI];
@@ -102,6 +114,15 @@ extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n) {
             ret;
         }
     }
+	version (Windows) {
+		// Move to Posix registers due to different calling convention.
+		asm pure nothrow @nogc {
+			naked;
+			mov RDI, RCX;
+			mov RSI, RDX;
+			mov RDX, R8;
+		}
+	}
     asm pure nothrow @nogc {
         naked;
         vmovdqu YMM0, [RSI];
@@ -151,6 +172,16 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
     }
     return;
     */
+
+	version (Windows) {
+		// Move to Posix registers due to different calling convention.
+		asm pure nothrow @nogc {
+			naked;
+			mov RDI, RCX;
+			mov RSI, RDX;
+			mov RDX, R8;
+		}
+	}
     
     asm pure nothrow @nogc {
         naked;
