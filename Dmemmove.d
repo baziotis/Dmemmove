@@ -21,22 +21,13 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEalINGS IN THE SOFTWARE.
 */
 
-import core.stdc.string: memmove;
-import core.stdc.string;
 import S_struct;
 import std.traits;
-
 
 bool isPowerOf2(T)(T x)
     if (isIntegral!T)
 {
     return (x != 0) && ((x & (x - 1)) == 0);
-}
-
-void Cmemcpy(T)(T *dst, const T *src)
-{
-    pragma(inline, true)
-    memcpy(dst, src, T.sizeof);
 }
 
 void Dmemcpy(T)(T *dst, const T *src)
@@ -161,25 +152,28 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
     return;
     */
     
-    pragma(inline, false)
     asm pure nothrow @nogc {
         naked;
-        mov    ECX, ESI;                       // save `src`
-        and    ECX, 0x1f;                      // mod = src % 32
-        je     L4;
+        mov     ECX, ESI;                       // save `src`
+        and     ECX, 0x1f;                      // mod = src % 32
+        je      L4;
         // if (mod) -> copy enough bytes to reach 32-byte alignment
         vmovdqu YMM0, [RSI];
         vmovdqu [RDI], YMM0;
         // %t0 = 32 - mod
-        mov    RAX, 0x20;
-        sub    RAX, RCX;
+        mov     RAX, 0x20;
+        sub     RAX, RCX;
         //cdqe   ;
         // src += %t0
-        add    RSI, RAX;
+        add     RSI, RAX;
         // dst += %t0
-        add    RDI, RAX;
+        add     RDI, RAX;
         // n -= %t0
-        sub    RDX, RAX;
+        sub     RDX, RAX;
+        // NOTE(stefanos): There is a possibility to go below 128
+        // with reaching alignment.
+        cmp     RDX, 128;
+        jb      L2;
     align 16;
     L4:
         // Because of the above, (at least) the loads
@@ -202,13 +196,18 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
         cmp    RDX, 128;
         jge    L4;
     L2:
+        // Move any remaining bytes.
         test   RDX, RDX;
         je     L3;
+        cmp    RDX, 64;
+        jb     L5;
         // if (n != 0)  -> copy the remaining <= 128 bytes
         vmovdqu YMM0, [RSI];
         vmovdqu YMM1, [RSI+0x20];
         vmovdqu [RDI], YMM0;
         vmovdqu [RDI+0x20], YMM1;
+        // NOTE(stefanos): Note the possible underflow. But because of the
+        // check that n is >= 64, this is correct.
         sub     RDX, 0x40;
         add     RSI, RDX;
         add     RDI, RDX;
@@ -216,6 +215,58 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
         vmovdqu YMM1, [RSI+0x20];
         vmovdqu [RDI], YMM0;
         vmovdqu [RDI+0x20], YMM1;
+    L5:
+        mov     RCX, RDX;
+        sar     RCX, 6;
+        je      L6;
+    L64_LOOP:
+        /*
+        for (size_t i = RDX / 64; i; --i) {
+            mov64_bytes;
+            RDX -= 64;
+            RDI += 64;
+            RSI += 64;
+        }
+        */
+
+        vmovdqu YMM0, [RSI];
+        vmovdqu YMM1, [RSI+0x20];
+        vmovdqu [RDI], YMM0;
+        vmovdqu [RDI+0x20], YMM1;
+        add     RSI, 0x40;
+        add     RDI, 0x40;
+        sub     RDX, 0x40;
+        sub     RCX, 1;
+        ja      L64_LOOP;
+    L6:
+        mov     RCX, RDX;
+        sar     RCX, 4;
+    L16_LOOP:
+        /*
+        for (size_t i = RDX / 64; i; --i) {
+            mov64_bytes;
+            RDX -= 64;
+            RDI += 64;
+            RSI += 64;
+        }
+        */
+        movdqu  XMM0, [RSI];
+        movdqu  [RDI], XMM0;
+        add     RSI, 16;
+        add     RDI, 16;
+        sub     RDX, 16;
+        sub     RCX, 1;
+        ja L16_LOOP;
+        cmp RDX, 0;
+        je L3;
+        // move16_bytes if n != 0
+        // That is move from RSI + n - 16, to RDI + n - 16
+        add RSI, RDX;
+        sub RSI, 16;
+        add RDI, RDX;
+        sub RDI, 16;
+        movdqu XMM0, [RSI];
+        movdqu [RDI], XMM0;
     L3:
         vzeroupper;
         ret;
@@ -256,7 +307,6 @@ void Dmemcpy(T)(T *dst, const T *src)
         version(D_SIMD)
         {
             pragma(inline, true)
-            pragma(msg, "SIMD ", T);
             import core.simd: void16, storeUnaligned, loadUnaligned;
             storeUnaligned(cast(void16*)(dst), loadUnaligned(cast(const void16*)(src)));
         }
@@ -290,7 +340,7 @@ void Dmemcpy(T)(T *dst, const T *src)
         Dmemcpy(cast(S!32*)dst, cast(const S!32*)src) ;
         Dmemcpy((cast(S!32*)dst) + 1, (cast(const S!32*)src) + 1);
     }
-    else static if (T.sizeof < 256) {
+    else static if (T.sizeof <= 128) {
         pragma(inline, true);
         Dmemcpy_small(dst, src, T.sizeof);       
     }
@@ -299,12 +349,6 @@ void Dmemcpy(T)(T *dst, const T *src)
         pragma(inline, true);
         Dmemcpy_large(dst, src, T.sizeof);       
     }
-}
-
-void Cmemmove(T)(T *dst, const T *src)
-{
-    pragma(inline, true)
-    memmove(dst, src, T.sizeof);
 }
 
 // IMPORTANT(stefanos): memmove is supposed to return the dest
@@ -400,16 +444,9 @@ void Dmemmove(T)(T *dst, const T *src) {
 
 /// DYNAMIC ///
 
-void Cmemmove(T)( T[] dst, const  T[] src)
-{
-    assert(dst.length == src.length);
-    pragma(inline, true)
-    memmove(dst.ptr, src.ptr, dst.length * T.sizeof);
-}
-
 import core.stdc.stdio: printf;
 
-void Dmemmove(T)( T[] dst, const  T[] src) {
+void Dmemmove(T)(T[] dst, const T[] src) {
     assert(dst.length == src.length);
     void *d = dst.ptr;
     const void *s = src.ptr;
@@ -417,7 +454,7 @@ void Dmemmove(T)( T[] dst, const  T[] src) {
     if ((cast(ulong)d - cast(ulong)s) < n) {
         Dmemmove(d, s, n);
     } else {
-        if (n < 256) {
+        if (n <= 128) {
             pragma(inline, true);
             Dmemcpy_small(d, s, n);
         } else {
