@@ -232,7 +232,7 @@ void testStaticArray(size_t n)()
             // Relatively aligned
             if (j == 0)
             {
-                q = buf2[i..i+n];
+                q = buf2[0..n];
             }
             else {
                 // dst forward
