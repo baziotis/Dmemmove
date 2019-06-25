@@ -59,7 +59,9 @@ void DmemcpyUnsafe(T)(T *dst, const T *src) @trusted
     }
 }
 
-extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n) {
+// NOTE(stefanos): This function requires _no_ overlap.
+extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n)
+{
     if (n < 16) {
 		if (n & 0x01) {
 			*cast(ubyte *)d = *cast(const ubyte *)s;
@@ -83,63 +85,44 @@ extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n) {
     }
     if (n <= 32) {
         import core.simd: void16, storeUnaligned, loadUnaligned;
-        storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
-        storeUnaligned(cast(void16*)(d-16+n), loadUnaligned(cast(const void16*)(s-16+n)));
+		void16 xmm0 = loadUnaligned(cast(const void16*)(s));
+		void16 xmm1 = loadUnaligned(cast(const void16*)(s-16+n));
+        storeUnaligned(cast(void16*)(d), xmm0);
+        storeUnaligned(cast(void16*)(d-16+n), xmm1);
         return;
     }
-    // Write this in normal code when load/storeUnaligned are available
-    // for void32
-
-	// NOTE(stefanos): Writing once the common code for Windows here is possible
-	// to result wi
-    if (n <= 64) {
-		version (Windows) {
-			// Move to Posix registers due to different calling convention.
-			asm pure nothrow @nogc {
-				naked;
-				mov RDI, RCX;
-				mov RSI, RDX;
-				mov RDX, R8;
-			}
-		}
-        asm pure nothrow @nogc {
-            naked;
-            vmovdqu YMM0, [RSI];
-            vmovdqu [RDI], YMM0;
-            sub     RDX, 0x20;
-            add     RSI, RDX;
-            add     RDI, RDX;
-            vmovdqu YMM0, [RSI];
-            vmovdqu [RDI], YMM0;
-            ret;
-        }
+	// NOTE(stefanos): I'm writing using load/storeUnaligned() but you possibly can
+	// achieve greater performance using naked ASM. Be careful that you should either use
+	// only D or only naked ASM.
+    if (n <= 64)
+	{
+        import core.simd: void16, storeUnaligned, loadUnaligned;
+		void16 xmm0 = loadUnaligned(cast(const void16*)(s));
+		void16 xmm1 = loadUnaligned(cast(const void16*)(s+16));
+		void16 xmm2 = loadUnaligned(cast(const void16*)(s-32+n));
+		void16 xmm3 = loadUnaligned(cast(const void16*)(s-32+n+16));
+        storeUnaligned(cast(void16*)(d), xmm0);
+        storeUnaligned(cast(void16*)(d+16), xmm1);
+        storeUnaligned(cast(void16*)(d-32+n), xmm2);
+        storeUnaligned(cast(void16*)(d-32+n+16), xmm3);
+		return;
     }
-	version (Windows) {
-		// Move to Posix registers due to different calling convention.
-		asm pure nothrow @nogc {
-			naked;
-			mov RDI, RCX;
-			mov RSI, RDX;
-			mov RDX, R8;
-		}
-	}
-    asm pure nothrow @nogc {
-        naked;
-        vmovdqu YMM0, [RSI];
-        vmovdqu YMM1, [RSI+0x20];
-        vmovdqu [RDI], YMM0;
-        vmovdqu [RDI+0x20], YMM1;
-        sub     RDX, 0x40;
-        add     RSI, RDX;
-        add     RDI, RDX;
-        vmovdqu YMM0, [RSI];
-        vmovdqu YMM1, [RSI+0x20];
-        vmovdqu [RDI], YMM0;
-        vmovdqu [RDI+0x20], YMM1;
-        ret;
-    }
+	import core.simd: void16, storeUnaligned, loadUnaligned;
+	storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
+	storeUnaligned(cast(void16*)(d+16), loadUnaligned(cast(const void16*)(s+16)));
+	storeUnaligned(cast(void16*)(d+32), loadUnaligned(cast(const void16*)(s+32)));
+	storeUnaligned(cast(void16*)(d+48), loadUnaligned(cast(const void16*)(s+48)));
+	// NOTE(stefanos): Requires _no_ overlap.
+	n -= 64;
+	s = s + n;
+	d = d + n;
+	storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
+	storeUnaligned(cast(void16*)(d+16), loadUnaligned(cast(const void16*)(s+16)));
+	storeUnaligned(cast(void16*)(d+32), loadUnaligned(cast(const void16*)(s+32)));
+	storeUnaligned(cast(void16*)(d+48), loadUnaligned(cast(const void16*)(s+48)));
 }
 
+// NOTE(stefanos): This function requires _no_ overlap.
 extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
     // NOTE(stefanos): Alternative - Reach 64-byte
     // (cache-line) alignment and use rep movsb
@@ -173,10 +156,18 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
     return;
     */
 
+	// IMPORTANT(stefanos): For anything regarding the Windows calling convention,
+	// refer here: https://en.wikipedia.org/wiki/X86_calling_conventions#Microsoft_x64_calling_convention
+	// and be sure to follow the links in the Microsoft pages for further info.
+	// For anything regarding the calling convention used for POSIX, that is the AMD64 ABI:
+	// https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
 	version (Windows) {
-		// Move to Posix registers due to different calling convention.
 		asm pure nothrow @nogc {
 			naked;
+			// Preserve registers that are used in this ASM. RDI, RSI are non-volatile in Windows.
+			push RDI;
+			push RSI;
+			// Move to Posix registers.
 			mov RDI, RCX;
 			mov RSI, RDX;
 			mov RDX, R8;
@@ -185,10 +176,16 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
     
     asm pure nothrow @nogc {
         naked;
+		// Saved addresses for later use in the last 128 bytes.
+		lea		R9, [RSI+RDX-128];
+		lea		R11, [RDI+RDX-128];
         mov     ECX, ESI;                       // save `src`
         and     ECX, 0x1f;                      // mod = src % 32
         je      L4;
         // if (mod) -> copy enough bytes to reach 32-byte alignment
+		// TODO(stefanos): Consider aligning the write part (the destination)
+		// and not the read part (the source).
+		// NOTE(stefanos): No overlap is required.
         vmovdqu YMM0, [RSI];
         vmovdqu [RDI], YMM0;
         // %t0 = 32 - mod
@@ -230,78 +227,37 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
         // Move any remaining bytes.
         test   RDX, RDX;
         je     L3;
-        cmp    RDX, 64;
-        jb     L5;
         // if (n != 0)  -> copy the remaining <= 128 bytes
-        vmovdqu YMM0, [RSI];
-        vmovdqu YMM1, [RSI+0x20];
-        vmovdqu [RDI], YMM0;
-        vmovdqu [RDI+0x20], YMM1;
-        // NOTE(stefanos): Note the possible underflow. But because of the
-        // check that n is >= 64, this is correct.
-        sub     RDX, 0x40;
-        add     RSI, RDX;
-        add     RDI, RDX;
-        vmovdqu YMM0, [RSI];
-        vmovdqu YMM1, [RSI+0x20];
-        vmovdqu [RDI], YMM0;
-        vmovdqu [RDI+0x20], YMM1;
-    L5:
-        mov     RCX, RDX;
-        sar     RCX, 6;
-        je      L6;
-    L64_LOOP:
-        /*
-        for (size_t i = RDX / 64; i; --i) {
-            mov64_bytes;
-            RDX -= 64;
-            RDI += 64;
-            RSI += 64;
-        }
-        */
+		// NOTE(stefanos): We can do this because to be in Dmemcpy_large,
+		// the size is >= 128, so we can go back 128 bytes from the end
+		// and copy at once.
+		// NOTE(stefanos): No overlap is required.
+        vmovdqu YMM0, [R9];
+        vmovdqu YMM1, [R9+0x20];
+        vmovdqu YMM2, [R9+0x40];
+        vmovdqu YMM3, [R9+0x60];
+        vmovdqu [R11], YMM0;
+        vmovdqu [R11+0x20], YMM1;
+        vmovdqu [R11+0x40], YMM2;
+        vmovdqu [R11+0x60], YMM3;
+	}
 
-        vmovdqu YMM0, [RSI];
-        vmovdqu YMM1, [RSI+0x20];
-        vmovdqu [RDI], YMM0;
-        vmovdqu [RDI+0x20], YMM1;
-        add     RSI, 0x40;
-        add     RDI, 0x40;
-        sub     RDX, 0x40;
-        sub     RCX, 1;
-        ja      L64_LOOP;
-    L6:
-        mov     RCX, RDX;
-        sar     RCX, 4;
-    L16_LOOP:
-        /*
-        for (size_t i = RDX / 64; i; --i) {
-            mov64_bytes;
-            RDX -= 64;
-            RDI += 64;
-            RSI += 64;
-        }
-        */
-        movdqu  XMM0, [RSI];
-        movdqu  [RDI], XMM0;
-        add     RSI, 16;
-        add     RDI, 16;
-        sub     RDX, 16;
-        sub     RCX, 1;
-        ja L16_LOOP;
-        cmp RDX, 0;
-        je L3;
-        // move16_bytes if n != 0
-        // That is move from RSI + n - 16, to RDI + n - 16
-        add RSI, RDX;
-        sub RSI, 16;
-        add RDI, RDX;
-        sub RDI, 16;
-        movdqu XMM0, [RSI];
-        movdqu [RDI], XMM0;
-    L3:
-        vzeroupper;
-        ret;
-    }
+	version(Windows)
+	{
+		asm pure nothrow @nogc {
+		L3:
+			pop RSI;
+			pop RDI;
+			ret;
+		}
+	}
+	else
+	{
+		asm pure nothrow @nogc {
+		L3:
+			ret;
+		}
+	}
 }
 
 
@@ -382,37 +338,47 @@ void Dmemcpy(T)(T *dst, const T *src)
     }
 }
 
+void Dmemmove_back_lt64(void *d, const(void) *s, size_t n) {
+    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
+	assert(n < 64);
+	if (n & 32) {
+		n -= 32;
+		void16 xmm0 = loadUnaligned(cast(const void16*)(s+n+16));
+		void16 xmm1 = loadUnaligned(cast(const void16*)(s+n));
+
+		storeUnaligned(cast(void16*)(d+n+16), xmm0);
+		storeUnaligned(cast(void16*)(d+n), xmm1);
+	}
+	if (n & 16) {
+		n -= 16;
+		storeUnaligned(cast(void16*)(d+n), loadUnaligned(cast(const void16*)(s+n)));
+	}
+	if (n & 8) {
+		n -= 8;
+		*(cast(ulong*)(d+n)) = *(cast(const ulong*)(s+n));
+	}
+	if (n & 4) {
+		n -= 4;
+		*(cast(uint*)(d+n)) = *(cast(const uint*)(s+n));
+	}
+	if (n & 2) {
+		n -= 2;
+		*(cast(ushort*)(d+n)) = *(cast(const ushort*)(s+n));
+	}
+	if (n & 1) {
+		*(cast(ubyte*)d) = *(cast(const ubyte*)s);
+	}
+}
+
 // IMPORTANT(stefanos): memmove is supposed to return the dest
-void Dmemmove(void *d, const(void) *s, size_t n)
+void Dmemmove_back(void *d, const(void) *s, size_t n)
 {
     import core.stdc.stdio: printf;
     import core.simd: void16, void32, loadUnaligned, storeUnaligned;
 
+START:
     if (n < 64) {
-        if (n & 32) {
-            n -= 32;
-            storeUnaligned(cast(void16*)(d+n+16), loadUnaligned(cast(const void16*)(s+n+16)));
-            storeUnaligned(cast(void16*)(d+n), loadUnaligned(cast(const void16*)(s+n)));
-        }
-        if (n & 16) {
-            n -= 16;
-            storeUnaligned(cast(void16*)(d+n), loadUnaligned(cast(const void16*)(s+n)));
-        }
-        if (n & 8) {
-            n -= 8;
-            *(cast(ulong*)(d+n)) = *(cast(const ulong*)(s+n));
-        }
-        if (n & 4) {
-            n -= 4;
-            *(cast(uint*)(d+n)) = *(cast(const uint*)(s+n));
-        }
-        if (n & 2) {
-            n -= 2;
-            *(cast(ushort*)(d+n)) = *(cast(const ushort*)(s+n));
-        }
-        if (n & 1) {
-            *(cast(ubyte*)d) = *(cast(const ubyte*)s);
-        }
+		Dmemmove_back_lt64(d, s, n);
         return;
     }
     s += n;
@@ -422,24 +388,27 @@ void Dmemmove(void *d, const(void) *s, size_t n)
         storeUnaligned(cast(void16*)(d-0x20), loadUnaligned(cast(const void16*)(s-0x20)));
         storeUnaligned(cast(void16*)(d-0x30), loadUnaligned(cast(const void16*)(s-0x30)));
         storeUnaligned(cast(void16*)(d-0x40), loadUnaligned(cast(const void16*)(s-0x40)));
-        n -= 64;
+		// NOTE(stefanos): We can't do the standard trick where we just go back enough bytes
+		// so that we can move the last bytes with a 64-byte move even if they're less than 64.
+		// To do that, we have to _not_ have overlap.
         s = s - n;
         d = d - n;
-        storeUnaligned(cast(void16*)(d-0x10), loadUnaligned(cast(const void16*)(s-0x10)));
-        storeUnaligned(cast(void16*)(d-0x20), loadUnaligned(cast(const void16*)(s-0x20)));
-        storeUnaligned(cast(void16*)(d-0x30), loadUnaligned(cast(const void16*)(s-0x30)));
-        storeUnaligned(cast(void16*)(d-0x40), loadUnaligned(cast(const void16*)(s-0x40)));
+        n -= 64;
+		Dmemmove_back_lt64(d, s, n);
         return;
     }
     uint mod = cast(ulong)d & 31;
     if (mod) {
-        storeUnaligned(cast(void16*)(d-0x10), loadUnaligned(cast(const void16*)(s-0x10)));
-        storeUnaligned(cast(void16*)(d-0x20), loadUnaligned(cast(const void16*)(s-0x20)));
+		// NOTE(stefanos): Again, can't use the standard trick because of overlap.
+		Dmemmove_back_lt64(d-mod, s-mod, mod);
         s -= mod;
         d -= mod;
         n -= mod;
     }
     while (n >= 128) {
+		// NOTE(stefanos): No problem with the overlap here since
+		// we never use overlapped bytes.
+		// TODO(stefanos): Explore prefetching.
         *(cast(void32*)(d-0x20)) = *(cast(const void32*)(s-0x20));
         *(cast(void32*)(d-0x40)) = *(cast(const void32*)(s-0x40));
         *(cast(void32*)(d-0x60)) = *(cast(const void32*)(s-0x60));
@@ -450,24 +419,120 @@ void Dmemmove(void *d, const(void) *s, size_t n)
     }
 
     if (n) {
-        *(cast(void32*)(d-0x20)) = *(cast(const void32*)(s-0x20));
-        *(cast(void32*)(d-0x40)) = *(cast(const void32*)(s-0x40));
-        n = -n + 0x40;
-        s += n;
-        d += n;
-        storeUnaligned(cast(void16*)(d-16), loadUnaligned(cast(const void16*)(s-16)));
-        storeUnaligned(cast(void16*)(d-32), loadUnaligned(cast(const void16*)(s-32)));
-        storeUnaligned(cast(void16*)(d-48), loadUnaligned(cast(const void16*)(s-48)));
-        storeUnaligned(cast(void16*)(d-64), loadUnaligned(cast(const void16*)(s-64)));
+		// NOTE(stefanos): Again, can't use the standard trick because of overlap.
+		// Move pointers to their start.
+		s -= n;
+		d -= n;
+		goto START;
+    }
+}
+
+pragma(inline, true)
+void Dmemmove_forw_lt64(void *d, const(void) *s, size_t n) {
+    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
+	if (n & 32) {
+		storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
+		storeUnaligned(cast(void16*)(d+16), loadUnaligned(cast(const void16*)(s+16)));
+		n -= 32;
+		s += 32;
+		d += 32;
+	}
+	if (n & 16) {
+		storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
+		n -= 16;
+		s += 16;
+		d += 16;
+	}
+	if (n & 8) {
+		*(cast(ulong*)(d)) = *(cast(const ulong*)(s));
+		n -= 8;
+		s += 8;
+		d += 8;
+	}
+	if (n & 4) {
+		n -= 4;
+		*(cast(uint*)(d)) = *(cast(const uint*)(s));
+		n -= 4;
+		s += 4;
+		d += 4;
+	}
+	if (n & 2) {
+		n -= 2;
+		*(cast(ushort*)(d)) = *(cast(const ushort*)(s));
+		n -= 2;
+		s += 2;
+		d += 2;
+	}
+	if (n & 1) {
+		*(cast(ubyte*)d) = *(cast(const ubyte*)s);
+	}
+}
+
+// IMPORTANT(stefanos): memmove is supposed to return the dest
+void Dmemmove_forw(void *d, const(void) *s, size_t n)
+{
+    import core.stdc.stdio: printf;
+    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
+
+START:
+    if (n < 64) {
+		Dmemmove_forw_lt64(d, s, n);
+        return;
+    }
+    if (n < 128) {
+		// We know it's >= 64, so move the first 64 bytes freely.
+        storeUnaligned(cast(void16*)d, loadUnaligned(cast(const void16*)s));
+        storeUnaligned(cast(void16*)(d+0x10), loadUnaligned(cast(const void16*)(s+0x10)));
+        storeUnaligned(cast(void16*)(d+0x20), loadUnaligned(cast(const void16*)(s+0x20)));
+        storeUnaligned(cast(void16*)(d+0x30), loadUnaligned(cast(const void16*)(s+0x30)));
+		// NOTE(stefanos): We can't do the standard trick where we just go forward enough bytes
+		// so that we can move the last bytes with a 64-byte move even if they're less than 64.
+		// To do that, we have to _not_ have overlap.
+        s += 64;
+        d += 64;
+        n -= 64;
+		Dmemmove_forw_lt64(d, s, n);
+        return;
+    }
+    uint mod = cast(ulong)d & 31;
+    if (mod) {
+		// NOTE(stefanos): Again, can't use the standard trick because of overlap.
+		Dmemmove_forw_lt64(d, s, 32-mod);
+        s += 32 - mod;
+        d += 32 - mod;
+        n -= 32 - mod;
+    }
+    while (n >= 128) {
+		// NOTE(stefanos): No problem with the overlap here since
+		// we never use overlapped bytes.
+        *(cast(void32*)d) = *(cast(const void32*)s);
+        *(cast(void32*)(d+0x20)) = *(cast(const void32*)(s+0x20));
+        *(cast(void32*)(d+0x40)) = *(cast(const void32*)(s+0x40));
+        *(cast(void32*)(d+0x60)) = *(cast(const void32*)(s+0x60));
+        s += 128;
+        d += 128;
+        n -= 128;
+    }
+
+    if (n) {
+		// NOTE(stefanos): Again, can't use the standard trick because of overlap.
+		goto START;
     }
 }
 
 void Dmemmove(T)(T *dst, const T *src) {
     void *d = dst;
     const void *s = src;
-    if ((cast(ulong)d - cast(ulong)s) < T.sizeof) {
-        Dmemmove(d, s, T.sizeof);
-    } else {
+    if ((cast(ulong)d - cast(ulong)s) < T.sizeof)
+	{
+        Dmemmove_back(d, s, T.sizeof);
+    }
+	else if ((cast(ulong)s - cast(ulong)d) < T.sizeof)
+	{
+        Dmemmove_forw(d, s, T.sizeof);
+	}
+	else
+	{
         Dmemcpy(dst, src);
     }
 }
@@ -477,15 +542,23 @@ void Dmemmove(T)(T *dst, const T *src) {
 
 import core.stdc.stdio: printf;
 
-void Dmemmove(T)(T[] dst, const T[] src) {
+void Dmemmove(T)(ref T[] dst, const ref T[] src) {
     assert(dst.length == src.length);
     void *d = dst.ptr;
     const void *s = src.ptr;
     size_t n = dst.length * T.sizeof;
-    if ((cast(ulong)d - cast(ulong)s) < n) {
-        Dmemmove(d, s, n);
-    } else {
-        if (n <= 128) {
+    if ((cast(ulong)d - cast(ulong)s) < n)
+	{  // overlap with dst forward
+        Dmemmove_back(d, s, n);
+    }
+	else if ((cast(ulong)s - cast(ulong)d) < n)
+	{  // overlap with src forward
+		Dmemmove_forw(d, s, n);
+	}
+	else
+	{  // no overlap
+        if (n <= 128)
+		{
             pragma(inline, true);
             Dmemcpy_small(d, s, n);
         } else {

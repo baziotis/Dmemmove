@@ -36,57 +36,43 @@ void main(string[] args)
 {
     // For performing benchmarks
     stdout.flush();
-    testStatic!(byte);
-    testStatic!(ubyte);
-    testStatic!(short);
-    testStatic!(ushort);
-    testStatic!(int);
-    testStatic!(uint);
-    testStatic!(long);
-    testStatic!(ulong);
-    testStatic!(float);
-    testStatic!(double);
-    testStatic!(real);
-    testStatic!(S!1);
-    testStatic!(S!3);
-    testStatic!(S!7);
-    testStatic!(S!13);
-    testStatic!(S!22);
-    testStatic!(S!29);
-    testStatic!(S!39);
-    testStatic!(S!45);
-    testStatic!(S!54);
-    testStatic!(S!63);
-    testStatic!(S!64);
-    static foreach(i; 120..130)
-    {
-        testStatic!(S!i);
-    }
-    static foreach(i; 220..230)
-    {
-        testStatic!(S!i);
-    }
-    static foreach(i; 720..730)
-    {
-        testStatic!(S!i);
-    }
-    testStatic!(S!3452);
-    testStatic!(S!6598);
-    testStatic!(S!14928);
-    testStatic!(S!27891);
-    testStatic!(S!44032);
-    testStatic!(S!55897);
-    testStatic!(S!79394);
+    testStaticType!(byte);
+    testStaticType!(ubyte);
+    testStaticType!(short);
+    testStaticType!(ushort);
+    testStaticType!(int);
+    testStaticType!(uint);
+    testStaticType!(long);
+    testStaticType!(ulong);
+    testStaticType!(float);
+    testStaticType!(double);
+    testStaticType!(real);
+	testStaticArray!(3452)();
+	static foreach (i; 65..100) {
+	    testStaticType!(S!i);
+	    testStaticArray!(i)();
+	}
+    testStaticType!(S!3452);
+	testStaticArray!(3452)();
+    testStaticType!(S!6598);
+    testStaticArray!(6598);
+    testStaticType!(S!14928);
+    testStaticArray!(14928);
+    testStaticType!(S!27891);
+    testStaticArray!(27891);
+    testStaticType!(S!44032);
+    testStaticType!(S!55897);
+    testStaticType!(S!79394);
 
-    testStatic!(S!256);
-    testStatic!(S!512);
-    testStatic!(S!1024);
-    testStatic!(S!2048);
-    testStatic!(S!4096);
-    testStatic!(S!8192);
-    testStatic!(S!16384);
-    testStatic!(S!32768);
-    testStatic!(S!65536);
+    testStaticType!(S!256);
+    testStaticType!(S!512);
+    testStaticType!(S!1024);
+    testStaticType!(S!2048);
+    testStaticType!(S!4096);
+    testStaticType!(S!8192);
+    testStaticType!(S!16384);
+    testStaticType!(S!32768);
+    testStaticType!(S!65536);
 }
 
 // From a very good Chandler Carruth video on benchmarking: https://www.youtube.com/watch?v=nXaxk27zwlk
@@ -110,7 +96,7 @@ void Cmemmove(T)(T *dst, const T *src)
     memmove(dst, src, T.sizeof);
 }
 
-void Cmemmove(T)(T[] dst, const T[] src)
+void Cmemmove(T)(ref T[] dst, const ref T[] src)
 {
     import core.stdc.string: memmove;
     assert(dst.length == src.length);
@@ -125,7 +111,7 @@ void Cmemcpy(T)(T *dst, const T *src)
     memcpy(dst, src, T.sizeof);
 }
 
-void Cmemcpy(T)(T[] dst, const T[] src)
+void Cmemcpy(T)(ref T[] dst, const ref T[] src)
 {
     import core.stdc.string: memcpy;
     assert(dst.length == src.length);
@@ -133,6 +119,7 @@ void Cmemcpy(T)(T[] dst, const T[] src)
     memcpy(dst.ptr, src.ptr, dst.length * T.sizeof);
 }
 
+pragma(inline, false)
 void init(T)(T *v)
 {
     static if (is(T == float))
@@ -157,7 +144,8 @@ void init(T)(T *v)
     }
 }
 
-void verify(T)(const T *a, const T *b)
+pragma(inline, false)
+void verifyStaticType(T)(const T *a, const T *b)
 {
     const ubyte *aa = (cast(const ubyte*)a);
     const ubyte *bb = (cast(const ubyte*)b);
@@ -167,17 +155,33 @@ void verify(T)(const T *a, const T *b)
     }
 }
 
-void testStatic(T)()
+pragma(inline, false)
+void testStaticType(T)()
 {
     T d, s;
     init(&d);
     init(&s);
     Dmemmove(&d, &s);
-    verify(&d, &s);
+    verifyStaticType(&d, &s);
 }
 
-void init(T)(ref T[] v)
+pragma(inline, false)
+void init(T)(ref T[] v, int j)
 {
+	if (j) {
+        for(int i = 0; i < v.length; i++)
+        {
+            v[i] = cast(ubyte)i;
+        }
+	}
+	else
+	{
+        for(int i = 0; i < v.length; i++)
+        {
+            v[i] = cast(ubyte)(i + 10);
+        }
+	}
+	/*
     static if (is (T == float))
     {
         v = uniform(0.0f, 9_999_999.0f);
@@ -197,33 +201,33 @@ void init(T)(ref T[] v)
             v[i] = uniform!byte;
         }
     }
+	*/
 }
 
-void verify(T)(const ref T[] a, const ref T[] b)
+pragma(inline, false)
+void verifyArray(T, string name)(size_t j, const ref T[] a, const ref T[80000] b)
 {
-    assert(a.length == b.length);
+    //assert(a.length == b.length);
     for(int i = 0; i < a.length; i++)
     {
         assert(a[i] == b[i]);
     }
 }
 
-/*
-void testDynamic(size_t n)
+pragma(inline, false)
+void testStaticArray(size_t n)()
 {
     ubyte[80000] buf1;
     ubyte[80000] buf2;
 
     // TODO(stefanos): This should be a static foreach
     for (int j = 0; j < 3; ++j) {
-        double TotalGBperSec1 = 0.0;
-        double TotalGBperSec2 = 0.0;
         enum alignments = 32;
 
         foreach(i; 0..alignments)
         {
             ubyte[] p = buf1[i..i+n];
-            ubyte[] q = buf2[i..i+n];
+            ubyte[] q;
 
             // Relatively aligned
             if (j == 0)
@@ -231,61 +235,47 @@ void testDynamic(size_t n)
                 q = buf2[i..i+n];
             }
             else {
-                // src forward
+                // dst forward
                 if (j == 1)
                 {
-                    q = buf1[n/2..n/2+n];
-                // dst forward
+					q = buf1[i+n/2..i+n/2+n];
                 }
+                // src forward
                 else
                 {
-                    q = p;
-                    p = buf1[n/2..n/2+n];
+					q = p;
+                    p = buf1[i+n/2..i+n/2+n];
                 }
             }
 
-            ulong bytesCopied1;
-            ulong bytesCopied2;
-            init(q);
-            init(p);
-            immutable d1 = benchmark!(ubyte, Cmemmove)(p, q, &bytesCopied1);
-            verify(q, p);
+			// Use a copy for the cases of overlap.
+			ubyte[80000] copy;
 
-            init(q);
-            init(p);
-            immutable d2 = benchmark!(ubyte, Dmemmove)(p, q, &bytesCopied2);
-            verify(q, p);
+			pragma(inline, false);
+            init(q, 0);
+			pragma(inline, false);
+            init(p, 1);
+			for (size_t k = 0; k != p.length; ++k)
+			{
+				copy[k] = p[k];
+			}
+			pragma(inline, false);
+			Cmemmove(q, p);
+			pragma(inline, false);
+            verifyArray!(ubyte, "Cmemmove")(i, q, copy);
 
-            auto secs1 = (cast(double)(d1.total!"nsecs")) / 1_000_000_000.0;
-            auto secs2 = (cast(double)(d2.total!"nsecs")) / 1_000_000_000.0;
-            auto GB1 = (cast(double)bytesCopied1) / 1_000_000_000.0;
-            auto GB2 = (cast(double)bytesCopied2) / 1_000_000_000.0;
-            auto GBperSec1 = GB1 / secs1;
-            auto GBperSec2 = GB2 / secs2;
-            if (average)
-            {
-                TotalGBperSec1 += GBperSec1;
-                TotalGBperSec2 += GBperSec2;
-            }
-            else
-            {
-                writeln(n, " ", GBperSec1, " ", GBperSec2);
-                stdout.flush();
-            }
-        }
-
-        if (average)
-        {
-            write(n, " ", TotalGBperSec1 / alignments, " ", TotalGBperSec2 / alignments);
-            if (j == 0) {
-                writeln(" - Relatively aligned");
-            } else if (j == 1) {
-                writeln(" - src forward");
-            } else {
-                writeln(" - dst forward");
-            }
-            stdout.flush();
+			pragma(inline, false);
+            init(q, 0);
+			pragma(inline, false);
+            init(p, 1);
+			for (size_t k = 0; k != p.length; ++k)
+			{
+				copy[k] = p[k];
+			}
+			pragma(inline, false);
+			Dmemmove(q, p);
+			pragma(inline, false);
+			verifyArray!(ubyte, "Dmemmove")(i, q, copy);
         }
     }
 }
-*/
