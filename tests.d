@@ -33,7 +33,6 @@ import std.traits;
 
 void main(string[] args)
 {
-    // For performing benchmarks
     stdout.flush();
     testStaticType!(byte);
     testStaticType!(ubyte);

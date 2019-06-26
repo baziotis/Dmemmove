@@ -190,12 +190,10 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
         // Saved addresses for later use in the last 128 bytes.
         lea		R9, [RSI+RDX-128];
         lea		R11, [RDI+RDX-128];
-        mov     ECX, ESI;                       // save `src`
+        mov     ECX, EDI;                       // save `src`
         and     ECX, 0x1f;                      // mod = src % 32
         je      L4;
-        // if (mod) -> copy enough bytes to reach 32-byte alignment
-        // TODO(stefanos): Consider aligning the write part (the destination)
-        // and not the read part (the source).
+        // if (mod) -> copy enough bytes to reach 32-byte alignment on writes (destination)
         // NOTE(stefanos): No overlap is required.
         vmovdqu YMM0, [RSI];
         vmovdqu [RDI], YMM0;
@@ -221,10 +219,10 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
         vmovdqu YMM1, [RSI+0x20];
         vmovdqu YMM2, [RSI+0x40];
         vmovdqu YMM3, [RSI+0x60];
-        vmovdqu [RDI], YMM0;
-        vmovdqu [RDI+0x20], YMM1;
-        vmovdqu [RDI+0x40], YMM2;
-        vmovdqu [RDI+0x60], YMM3;
+        vmovdqa [RDI], YMM0;
+        vmovdqa [RDI+0x20], YMM1;
+        vmovdqa [RDI+0x40], YMM2;
+        vmovdqa [RDI+0x60], YMM3;
         // src += 128;
         add    RSI, 128;
         // dst += 128;
@@ -238,11 +236,21 @@ extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
         // Move any remaining bytes.
         test   RDX, RDX;
         je     L3;
+        cmp    RDX, 64;
+        ja     L5;
+        // Move the last 64
+        vmovdqu YMM2, [R9+0x40];
+        vmovdqu YMM3, [R9+0x60];
+        vmovdqu [R11+0x40], YMM2;
+        vmovdqu [R11+0x60], YMM3;
+        jmp    L3;
         // if (n != 0)  -> copy the remaining <= 128 bytes
         // NOTE(stefanos): We can do this because to be in Dmemcpy_large,
         // the size is >= 128, so we can go back 128 bytes from the end
         // and copy at once.
         // NOTE(stefanos): No overlap is required.
+    L5:
+        // Move the last 128.
         vmovdqu YMM0, [R9];
         vmovdqu YMM1, [R9+0x20];
         vmovdqu YMM2, [R9+0x40];
