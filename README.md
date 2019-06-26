@@ -5,19 +5,21 @@ This is part of my [Google Summer of Code project](https://summerofcode.withgoog
 It is a public repository for the work on the `memmove()` replacement.
 
 ## Compile and Run
-`dmd bench.d Dmemmove.d -O -inline -mcpu=avx && ./bench average` (DMD - Optimized and Inlined)
+### Run the test suite
+This suites verifies that `Dmemmove/Dmemcpy` work correctly.
 
-## Contact / Feedback
-An important reason that I published it so early (about 5 days of work) is to get feedback on different machines,
-from different people. <br/>
-So, if you are interested in helping, it would be beneficial to do one or more of the following:
-  - Test in DMD.
-  - Test on Windows or Linux.
+`rdmd run tests`
 
-See above for compilation and run instructions.
-Then just send me the results and your CPU model.
+This will compile with `-O -inline`. Refer to the `run.d` file for more info and `tests.d` to see the test suite code.
 
-### Contact Info
+### Run the benchmark suite
+This suite benchmarks `Dmemset` against `memmove/memcpy` of the C Standard Library.
+
+`rdmd run benchmarks`
+
+This will compile with `-O -inline`. Refer to the `run.d` file for more info and `benchmarks.d` to see the benchmark suite code.
+
+## Contact Info
 
 E-mail: sdi1600105@di.uoa.gr
 
