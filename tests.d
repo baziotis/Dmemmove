@@ -24,7 +24,6 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
-import std.datetime.stopwatch;
 import Dmemmove: Dmemmove;
 import S_struct;
 import std.random;
@@ -47,13 +46,13 @@ void main(string[] args)
     testStaticType!(float);
     testStaticType!(double);
     testStaticType!(real);
-	testStaticArray!(3452)();
-	static foreach (i; 65..100) {
-	    testStaticType!(S!i);
-	    testStaticArray!(i)();
-	}
+    static foreach (i; 1..100)
+    {
+        testStaticType!(S!i);
+        testStaticArray!(i)();
+    }
     testStaticType!(S!3452);
-	testStaticArray!(3452)();
+    testStaticArray!(3452)();
     testStaticType!(S!6598);
     testStaticArray!(6598);
     testStaticType!(S!14928);
@@ -87,36 +86,6 @@ void escape(void* p)
     {
         asm { "" : : "g" p : "memory"; }
     }
-}
-
-void Cmemmove(T)(T *dst, const T *src)
-{
-    import core.stdc.string: memmove;
-    pragma(inline, true)
-    memmove(dst, src, T.sizeof);
-}
-
-void Cmemmove(T)(ref T[] dst, const ref T[] src)
-{
-    import core.stdc.string: memmove;
-    assert(dst.length == src.length);
-    pragma(inline, true)
-    memmove(dst.ptr, src.ptr, dst.length * T.sizeof);
-}
-
-void Cmemcpy(T)(T *dst, const T *src)
-{
-    import core.stdc.string: memcpy;
-    pragma(inline, true)
-    memcpy(dst, src, T.sizeof);
-}
-
-void Cmemcpy(T)(ref T[] dst, const ref T[] src)
-{
-    import core.stdc.string: memcpy;
-    assert(dst.length == src.length);
-    pragma(inline, true)
-    memcpy(dst.ptr, src.ptr, dst.length * T.sizeof);
 }
 
 pragma(inline, false)
@@ -166,22 +135,8 @@ void testStaticType(T)()
 }
 
 pragma(inline, false)
-void init(T)(ref T[] v, int j)
+void init(T)(ref T[] v)
 {
-	if (j) {
-        for(int i = 0; i < v.length; i++)
-        {
-            v[i] = cast(ubyte)i;
-        }
-	}
-	else
-	{
-        for(int i = 0; i < v.length; i++)
-        {
-            v[i] = cast(ubyte)(i + 10);
-        }
-	}
-	/*
     static if (is (T == float))
     {
         v = uniform(0.0f, 9_999_999.0f);
@@ -201,7 +156,6 @@ void init(T)(ref T[] v, int j)
             v[i] = uniform!byte;
         }
     }
-	*/
 }
 
 pragma(inline, false)
@@ -238,44 +192,31 @@ void testStaticArray(size_t n)()
                 // dst forward
                 if (j == 1)
                 {
-					q = buf1[i+n/2..i+n/2+n];
+                    q = buf1[i+n/2..i+n/2+n];
                 }
                 // src forward
                 else
                 {
-					q = p;
+                    q = p;
                     p = buf1[i+n/2..i+n/2+n];
                 }
             }
 
-			// Use a copy for the cases of overlap.
-			ubyte[80000] copy;
+            // Use a copy for the cases of overlap.
+            ubyte[80000] copy;
 
-			pragma(inline, false);
-            init(q, 0);
-			pragma(inline, false);
-            init(p, 1);
-			for (size_t k = 0; k != p.length; ++k)
-			{
-				copy[k] = p[k];
-			}
-			pragma(inline, false);
-			Cmemmove(q, p);
-			pragma(inline, false);
-            verifyArray!(ubyte, "Cmemmove")(i, q, copy);
-
-			pragma(inline, false);
-            init(q, 0);
-			pragma(inline, false);
-            init(p, 1);
-			for (size_t k = 0; k != p.length; ++k)
-			{
-				copy[k] = p[k];
-			}
-			pragma(inline, false);
-			Dmemmove(q, p);
-			pragma(inline, false);
-			verifyArray!(ubyte, "Dmemmove")(i, q, copy);
+            pragma(inline, false);
+            init(q);
+            pragma(inline, false);
+            init(p);
+            for (size_t k = 0; k != p.length; ++k)
+            {
+                copy[k] = p[k];
+            }
+            pragma(inline, false);
+            Dmemmove(q, p);
+            pragma(inline, false);
+            verifyArray!(ubyte, "Dmemmove")(i, q, copy);
         }
     }
 }
