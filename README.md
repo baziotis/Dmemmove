@@ -13,7 +13,7 @@ This suites verifies that `Dmemmove/Dmemcpy` work correctly.
 This will compile with `-O -inline`. Refer to the `run.d` file for more info and `tests.d` to see the test suite code.
 
 ### Run the benchmark suite
-This suite benchmarks `Dmemset` against `memmove/memcpy` of the C Standard Library.
+This suite benchmarks `Dmemcpy` against `memmove/memcpy` of the C Standard Library.
 
 `rdmd run benchmarks`
 
