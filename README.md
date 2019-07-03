@@ -1,21 +1,34 @@
-# Dmemmove
+# Dmemset
 
 This is part of my [Google Summer of Code project](https://summerofcode.withgoogle.com/organizations/6103365956665344/#5475582328963072), _Independency of D from the C Standard Library_.
 
-It is a public repository for the work on the `memmove()` replacement.
+It is a public repository for the work on the `memmove()/memcpy()` replacement.
 
 ## Compile and Run
-`dmd bench.d Dmemmove.d -O -inline -mcpu=avx && ./bench average` (DMD - Optimized and Inlined)
 
-## Contact / Feedback
-An important reason that I published it so early (about 5 days of work) is to get feedback on different machines,
-from different people. <br/>
-So, if you are interested in helping, it would be beneficial to do one or more of the following:
-  - Test in DMD.
-  - Test on Windows or Linux.
+The `run.d` takes 2 command-line options. One is what suite to run and the other is the compiler of choice (currently
+only DMD and LDC).
 
-See above for compilation and run instructions.
-Then just send me the results and your CPU model.
+`rdmd run tests|benchmarks ldc|dmd`
+
+### Run the test suite
+With the option `tests`. This suites verifies that `Dmemmove` works correctly.
+
+Refer to the `run.d` file for more info and `tests.d` to see the test suite code.
+
+### Run the benchmark suite
+With the option `benchmarks`. This suite benchmarks `Dmemmove` against `memmove()/memcpy()` of the C Standard Library.
+
+Refer to the `run.d` file for more info and `benchmarks.d` to see the benchmark suite code.
+
+## Compiler choice
+You can choose to compile with LDC or DMD.
+
+### LDC
+This will compile with `-O3`.
+
+### DMD
+This will compile with `rdmd` and `-O -inline`.
 
 ### Contact Info
 
