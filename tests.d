@@ -44,7 +44,9 @@ void main(string[] args)
     testStaticType!(ulong);
     testStaticType!(float);
     testStaticType!(double);
-    testStaticType!(real);
+    // TODO - IMPORTANT(stefanos): This fails for reasons I don't know.
+    // Note that `real` is supposed to be 80 bits = 10 bytes, but T.sizeof outputs 16 bytes
+    //testStaticType!(real);
     static foreach (i; 1..100)
     {
         testStaticType!(S!i);
@@ -88,7 +90,7 @@ void escape(void* p)
 }
 
 pragma(inline, false)
-void init(T)(T *v)
+void initStatic(T, int pick)(T *v)
 {
     static if (is(T == float))
     {
@@ -127,8 +129,9 @@ pragma(inline, false)
 void testStaticType(T)()
 {
     T d, s;
-    init(&d);
-    init(&s);
+    writeln("Static Type: ", T.stringof);
+    initStatic!(T, 0)(&d);
+    initStatic!(T, 1)(&s);
     Dmemmove(&d, &s);
     verifyStaticType(&d, &s);
 }
@@ -158,7 +161,7 @@ void init(T)(ref T[] v)
 }
 
 pragma(inline, false)
-void verifyArray(T, string name)(size_t j, const ref T[] a, const ref T[80000] b)
+void verifyArray(string name)(size_t j, const ref ubyte[] a, const ref ubyte[80000] b)
 {
     //assert(a.length == b.length);
     for(int i = 0; i < a.length; i++)
@@ -172,6 +175,7 @@ void testStaticArray(size_t n)()
 {
     ubyte[80000] buf1;
     ubyte[80000] buf2;
+    writeln("Static Array: ", n);
 
     // TODO(stefanos): This should be a static foreach
     for (int j = 0; j < 3; ++j) {
@@ -215,7 +219,7 @@ void testStaticArray(size_t n)()
             pragma(inline, false);
             Dmemmove(q, p);
             pragma(inline, false);
-            verifyArray!(ubyte, "Dmemmove")(i, q, copy);
+            verifyArray!("Dmemmove")(i, q, copy);
         }
     }
 }

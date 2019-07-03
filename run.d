@@ -10,9 +10,9 @@ import std.getopt;
 void main(string[] args)
 {
     auto help = getopt(args);
-    if (help.helpWanted || args.length != 2 || (args[1] != "tests" && args[1] != "benchmarks"))
+    if (help.helpWanted || args.length != 3 || (args[1] != "tests" && args[1] != "benchmarks") || (args[2] != "ldc" && args[2] != "dmd"))
     {
-        writeln("USAGE: rdmd run tests|benchmarks");
+        writeln("USAGE: rdmd run tests|benchmarks ldc|dmd");
         return;
     }
 
@@ -23,29 +23,34 @@ void main(string[] args)
         return;
     }
     string compile, execute;
+    string func = "Dmemmove";
+
+    if (args[2] == "ldc")
+    {
+        compile = "ldc2 -O3";
+    }
+    else if (args[2] == "dmd")
+    {
+        compile = "rdmd -O -inline --build-only";
+    }
+
+    if (model == 32)
+    {
+        compile ~= " -m32";
+    }
+    else
+    {
+        compile ~= " -m64";
+    }
 
     if (args[1] == "tests")
     {
-        if (model == 32)
-        {
-            compile = "rdmd -O -inline -mcpu=avx --build-only tests.d Dmemmove.d";
-        }
-        else
-        {
-            compile = "rdmd -m64 -O -inline -mcpu=avx -g --build-only tests.d Dmemmove.d";
-        }
+        compile ~= " tests.d " ~ func ~ ".d";
         execute = "./tests";
     }
     else
     {
-        if (model == 32)
-        {
-            compile = "rdmd -O -inline -mcpu=avx --build-only benchmarks.d Dmemmove.d";
-        }
-        else
-        {
-            compile = "rdmd -m64 -O -inline -mcpu=avx --build-only benchmarks.d Dmemmove.d";
-        }
+        compile ~= " benchmarks.d " ~ func ~ ".d";
         execute = "./benchmarks";
     }
     if(run(compile) != 0)

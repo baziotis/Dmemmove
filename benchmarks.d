@@ -36,12 +36,10 @@ void main(string[] args)
 {
     // For performing benchmarks
     writeln("size(bytes) Cmemmove(GB/s) Dmemmove(GB/s)");
-    /*
     static foreach(i; 1..20)
     {
         test!(i);
     }
-    */
     test!(500);
     test!(700);
     test!(3434);
@@ -51,6 +49,15 @@ void main(string[] args)
     test!(27897);
     test!(32344);
     test!(46830);
+
+
+    test!(512);
+    test!(1024);
+    test!(2048);
+    test!(4096);
+    test!(16368);
+    test!(32768);
+    test!(65536);
 }
 
 // From a very good Chandler Carruth video on benchmarking: https://www.youtube.com/watch?v=nXaxk27zwlk
@@ -83,7 +90,7 @@ Duration benchmark(alias f)(ref ubyte[] dst, const ref ubyte[] src, ulong *bytes
 
     auto swt = StopWatch(AutoStart.yes);
     swt.reset();
-    while(swt.peek().total!"msecs" < 20)
+    while(swt.peek().total!"msecs" < 5)
     {
         auto sw = StopWatch(AutoStart.yes);
         sw.reset();
