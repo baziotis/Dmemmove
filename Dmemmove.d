@@ -23,6 +23,7 @@ DEalINGS IN THE SOFTWARE.
 
 import S_struct;
 import std.traits;
+import std.stdio;
 
 bool isPowerOf2(T)(T x)
 if (isIntegral!T)
@@ -34,7 +35,7 @@ void Dmemcpy(T)(T *dst, const T *src)
 if (isScalarType!T)
 {
     pragma(inline, true)
-        *dst = *src;
+    *dst = *src;
 }
 
 // This implementation handles type sizes that are not powers of 2
@@ -62,41 +63,144 @@ if (is(T == struct))
     }
 }
 
+////// Mini SIMD library ////////
+
+// TODO(stefanos): Consider making backwards versions
+
+// NOTE - IMPORTANT(stefanos): It's important to use
+// DMD's load/storeUnaligned when compiling with DMD (i.e. core.simd versions)
+// for correct code generation.
+import core.simd: float4;
+version (LDC)
+{
+    import ldc.simd: loadUnaligned, storeUnaligned;
+}
+else
+version (DigitalMars)
+{
+    import core.simd: void16, loadUnaligned, storeUnaligned;
+}
+else
+{
+    static assert(0, "Version not supported");
+}
+
+void store16_sse(void *dest, float4 reg)
+{
+    version (LDC)
+    {
+        storeUnaligned!float4(reg, cast(float*)dest);
+    }
+    else
+    {
+        storeUnaligned(cast(void16*)dest, reg);
+    }
+}
+
+float4 load16_sse(const(void) *src)
+{
+    version (LDC)
+    {
+        return loadUnaligned!(float4)(cast(const(float) *)src);
+    }
+    else
+    {
+        return loadUnaligned(cast(void16*)src);
+    }
+}
+
+/*
+void _store128p_sse(void *d, const(void) *s)
+{
+    _mm_prefetch!(0)(cast(void*)s+0x1a0);
+    _mm_prefetch!(0)(cast(void*)s+0x280);
+    store128_sse(d, s);
+}
+*/
+
+void store128_sse(void *d, const(void) *s)
+{
+    float4 xmm0 = load16_sse(cast(const float*)s);
+    float4 xmm1 = load16_sse(cast(const float*)(s+16));
+    float4 xmm2 = load16_sse(cast(const float*)(s+32));
+    float4 xmm3 = load16_sse(cast(const float*)(s+48));
+    float4 xmm4 = load16_sse(cast(const float*)(s+64));
+    float4 xmm5 = load16_sse(cast(const float*)(s+80));
+    float4 xmm6 = load16_sse(cast(const float*)(s+96));
+    float4 xmm7 = load16_sse(cast(const float*)(s+112));
+
+    store16_sse(cast(float*)d, xmm0);
+    store16_sse(cast(float*)(d+16), xmm1);
+    store16_sse(cast(float*)(d+32), xmm2);
+    store16_sse(cast(float*)(d+48), xmm3);
+    store16_sse(cast(float*)(d+64), xmm4);
+    store16_sse(cast(float*)(d+80), xmm5);
+    store16_sse(cast(float*)(d+96), xmm6);
+    store16_sse(cast(float*)(d+112), xmm7);
+}
+
+void store64_sse(void *d, const(void) *s)
+{
+    float4 xmm0 = load16_sse(cast(const float*)s);
+    float4 xmm1 = load16_sse(cast(const float*)(s+16));
+    float4 xmm2 = load16_sse(cast(const float*)(s+32));
+    float4 xmm3 = load16_sse(cast(const float*)(s+48));
+
+    store16_sse(cast(float*)d, xmm0);
+    store16_sse(cast(float*)(d+16), xmm1);
+    store16_sse(cast(float*)(d+32), xmm2);
+    store16_sse(cast(float*)(d+48), xmm3);
+}
+
+void store32_sse(void *d, const(void) *s)
+{
+    float4 xmm0 = load16_sse(cast(const float*)s);
+    float4 xmm1 = load16_sse(cast(const float*)(s+16));
+    store16_sse(cast(float*)d, xmm0);
+    store16_sse(cast(float*)(d+16), xmm1);
+}
+
 // NOTE(stefanos): This function requires _no_ overlap.
 extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n)
 {
     if (n < 16) {
         if (n & 0x01)
         {
-            *cast(ubyte *)d = *cast(const ubyte *)s;
+            *cast(ubyte*)d = *cast(const ubyte*)s;
             ++d;
             ++s;
         }
         if (n & 0x02)
         {
-            *cast(ushort *)d = *cast(const ushort *)s;
+            *cast(ushort*)d = *cast(const ushort*)s;
             d += 2;
             s += 2;
         }
         if (n & 0x04)
         {
-            *cast(uint *)d = *cast(const uint *)s;
+            *cast(uint*)d = *cast(const uint*)s;
             d += 4;
             s += 4;
         }
         if (n & 0x08)
         {
-            *cast(ulong *)d = *cast(const ulong *)s;
+            *cast(ulong*)d = *cast(const ulong*)s;
         }
         return;
     }
     if (n <= 32)
     {
+        /*
         import core.simd: void16, storeUnaligned, loadUnaligned;
         void16 xmm0 = loadUnaligned(cast(const void16*)(s));
         void16 xmm1 = loadUnaligned(cast(const void16*)(s-16+n));
         storeUnaligned(cast(void16*)(d), xmm0);
         storeUnaligned(cast(void16*)(d-16+n), xmm1);
+        */
+        float4 xmm0 = load16_sse(cast(const float*)s);
+        float4 xmm1 = load16_sse(cast(const float*)(s-16+n));
+        store16_sse(cast(float*)d, xmm0);
+        store16_sse(cast(float*)(d-16+n), xmm1);
         return;
     }
     // NOTE(stefanos): I'm writing using load/storeUnaligned() but you possibly can
@@ -104,184 +208,73 @@ extern(C) void Dmemcpy_small(void *d, const(void) *s, size_t n)
     // only D or only naked ASM.
     if (n <= 64)
     {
-        import core.simd: void16, storeUnaligned, loadUnaligned;
-        void16 xmm0 = loadUnaligned(cast(const void16*)(s));
-        void16 xmm1 = loadUnaligned(cast(const void16*)(s+16));
-        void16 xmm2 = loadUnaligned(cast(const void16*)(s-32+n));
-        void16 xmm3 = loadUnaligned(cast(const void16*)(s-32+n+16));
-        storeUnaligned(cast(void16*)(d), xmm0);
-        storeUnaligned(cast(void16*)(d+16), xmm1);
-        storeUnaligned(cast(void16*)(d-32+n), xmm2);
-        storeUnaligned(cast(void16*)(d-32+n+16), xmm3);
+        float4 xmm0 = load16_sse(cast(const float*)s);
+        float4 xmm1 = load16_sse(cast(const float*)(s+16));
+        float4 xmm2 = load16_sse(cast(const float*)(s-32+n));
+        float4 xmm3 = load16_sse(cast(const float*)(s-32+n+16));
+        store16_sse(cast(float*)d, xmm0);
+        store16_sse(cast(float*)(d+16), xmm1);
+        store16_sse(cast(float*)(d-32+n), xmm2);
+        store16_sse(cast(float*)(d-32+n+16), xmm3);
         return;
     }
-    import core.simd: void16, storeUnaligned, loadUnaligned;
-    storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
-    storeUnaligned(cast(void16*)(d+16), loadUnaligned(cast(const void16*)(s+16)));
-    storeUnaligned(cast(void16*)(d+32), loadUnaligned(cast(const void16*)(s+32)));
-    storeUnaligned(cast(void16*)(d+48), loadUnaligned(cast(const void16*)(s+48)));
+    import core.simd: void16;
+    store64_sse(d, s);
     // NOTE(stefanos): Requires _no_ overlap.
     n -= 64;
     s = s + n;
     d = d + n;
-    storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
-    storeUnaligned(cast(void16*)(d+16), loadUnaligned(cast(const void16*)(s+16)));
-    storeUnaligned(cast(void16*)(d+32), loadUnaligned(cast(const void16*)(s+32)));
-    storeUnaligned(cast(void16*)(d+48), loadUnaligned(cast(const void16*)(s+48)));
+    store64_sse(d, s);
 }
 
+// TODO(stefanos): I tried prefetching. I suppose
+// because this is a forward implementation, it should
+// actuall reduce performance, but a better check would be good.
+// TODO(stefanos): Consider aligning from the end, negate `n` and adding
+// every time the `n` (and thus going backwards). That reduces the operations
+// inside the loop.
+// TODO(stefanos): Consider aligning `n` to 32. This will reduce one operation
+// inside the loop but only if the compiler can pick it up (in my tests, it didn't).
+// TODO(stefanos): Do a better research on how to inform the compiler about alignment,
+// something like assume_aligned.
 // NOTE(stefanos): This function requires _no_ overlap.
-extern(C) void Dmemcpy_large(void *d, const(void) *s, size_t n) {
+void Dmemcpy_large(void *d, const(void) *s, size_t n)
+{
     // NOTE(stefanos): Alternative - Reach 64-byte
     // (cache-line) alignment and use rep movsb
     // Good for bigger sizes and only for Intel.
-    /*
-    pragma(inline, false)
-    asm pure nothrow @nogc
-    {
-        mov     RCX, T.sizeof;
-        mov     EDX, ESI;                       // save `src`
-        and     EDX, 0x3f;                      // mod = src % 64
-        je      L5;
-        vmovdqu  YMM0, [RSI];
-        vmovdqu  YMM1, [RSI+0x20];
-        vmovdqu  [RDI], YMM0;
-        vmovdqu  [RDI+0x20], YMM1;
-        mov    RAX, 0x40;
-        sub    RAX, RDX;
-        //cdqe   ;
-        // src += %t0
-        add    RSI, RAX;
-        // dst += %t0
-        add    RDI, RAX;
-        // n -= %t0
-        sub    RCX, RAX;
-        L5:
-        cld;
-        rep;
-        movsb;
-    }
-    return;
-    */
 
-    // IMPORTANT(stefanos): For anything regarding the Windows calling convention,
-    // refer here: https://en.wikipedia.org/wiki/X86_calling_conventions#Microsoft_x64_calling_convention
-    // and be sure to follow the links in the Microsoft pages for further info.
-    // For anything regarding the calling convention used for POSIX, that is the AMD64 ABI:
-    // https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
-    version (Windows)
+    // Align destination (write) to 32-byte boundary
+    // NOTE(stefanos): We're using SSE, which needs 16-byte alignment.
+    // But actually, 32-byte alignment was quite faster (probably because
+    // the loads / stores are faster and there's the bottleneck).
+    uint rem = cast(ulong)d & 15;
+    if (rem)
     {
-        asm pure nothrow @nogc
-        {
-            naked;
-            // Preserve registers that are used in this ASM. RDI, RSI are non-volatile in Windows.
-            push RDI;
-            push RSI;
-            // Move to Posix registers.
-            mov RDI, RCX;
-            mov RSI, RDX;
-            mov RDX, R8;
-        }
+        store16_sse(d, load16_sse(s));
+        s += 16 - rem;
+        d += 16 - rem;
+        n -= 16 - rem;
     }
 
-    asm pure nothrow @nogc
+    while (n >= 128)
     {
-        naked;
-        // Saved addresses for later use in the last 128 bytes.
-        lea		R9, [RSI+RDX-128];
-        lea		R11, [RDI+RDX-128];
-        mov     ECX, EDI;                       // save `src`
-        and     ECX, 0x1f;                      // mod = src % 32
-        je      L4;
-        // if (mod) -> copy enough bytes to reach 32-byte alignment on writes (destination)
-        // NOTE(stefanos): No overlap is required.
-        vmovdqu YMM0, [RSI];
-        vmovdqu [RDI], YMM0;
-        // %t0 = 32 - mod
-        mov     RAX, 0x20;
-        sub     RAX, RCX;
-        //cdqe   ;
-        // src += %t0
-        add     RSI, RAX;
-        // dst += %t0
-        add     RDI, RAX;
-        // n -= %t0
-        sub     RDX, RAX;
-        // NOTE(stefanos): There is a possibility to go below 128
-        // with reaching alignment.
-        cmp     RDX, 128;
-        jb      L2;
-        align 16;
-    L4:
-        // Because of the above, (at least) the loads
-        // are 32-byte aligned.
-        vmovdqu YMM0, [RSI];
-        vmovdqu YMM1, [RSI+0x20];
-        vmovdqu YMM2, [RSI+0x40];
-        vmovdqu YMM3, [RSI+0x60];
-        vmovdqa [RDI], YMM0;
-        vmovdqa [RDI+0x20], YMM1;
-        vmovdqa [RDI+0x40], YMM2;
-        vmovdqa [RDI+0x60], YMM3;
-        // src += 128;
-        add    RSI, 128;
-        // dst += 128;
-        add    RDI, 128;
-        // n -= 128;
-        sub    RDX, 128;
-        // if (n >= 128) loop
-        cmp    RDX, 128;
-        jge    L4;
-    L2:
-        // Move any remaining bytes.
-        test   RDX, RDX;
-        je     L3;
-        cmp    RDX, 64;
-        ja     L5;
-        // Move the last 64
-        vmovdqu YMM2, [R9+0x40];
-        vmovdqu YMM3, [R9+0x60];
-        vmovdqu [R11+0x40], YMM2;
-        vmovdqu [R11+0x60], YMM3;
-        jmp    L3;
-        // if (n != 0)  -> copy the remaining <= 128 bytes
-        // NOTE(stefanos): We can do this because to be in Dmemcpy_large,
-        // the size is >= 128, so we can go back 128 bytes from the end
-        // and copy at once.
-        // NOTE(stefanos): No overlap is required.
-    L5:
-        // Move the last 128.
-        vmovdqu YMM0, [R9];
-        vmovdqu YMM1, [R9+0x20];
-        vmovdqu YMM2, [R9+0x40];
-        vmovdqu YMM3, [R9+0x60];
-        vmovdqu [R11], YMM0;
-        vmovdqu [R11+0x20], YMM1;
-        vmovdqu [R11+0x40], YMM2;
-        vmovdqu [R11+0x60], YMM3;
+        // Aligned stores / writes
+        store128_sse(d, s);
+        d += 128;
+        s += 128;
+        n -= 128;
     }
 
-    version(Windows)
+    // NOTE(stefanos): We already have checked that the initial size is >= 128
+    // to be here. So, we won't overwrite previous data.
+    if (n != 0)
     {
-        asm pure nothrow @nogc
-        {
-        L3:
-            pop RSI;
-            pop RDI;
-            ret;
-        }
-    }
-    else
-    {
-        asm pure nothrow @nogc {
-        L3:
-            ret;
-        }
+        store128_sse(d - 128 + n, s - 128 + n);
     }
 }
 
 
-pragma(inline, true)
 void Dmemcpy(T)(T *dst, const T *src)
 if (is(T == struct))
 {
@@ -313,16 +306,16 @@ if (is(T == struct))
     {
         version(D_SIMD)
         {
-            pragma(inline, true)
+            //pragma(inline, true)
             import core.simd: void16, storeUnaligned, loadUnaligned;
             storeUnaligned(cast(void16*)(dst), loadUnaligned(cast(const void16*)(src)));
         }
         else
         {
             //pragma(inline, true)
-            static foreach(i; 0 .. T.sizeof/8)
+            foreach(i; 0 .. T.sizeof/8)
             {
-                Dmemcpy((cast(ulong*)dst) + i, (cast(const long*)src) + i);
+                Dmemcpy((cast(ulong*)dst) + i, (cast(const ulong*)src) + i);
             }
         }
 
@@ -331,7 +324,7 @@ if (is(T == struct))
     else static if (T.sizeof == 32)
     {
         //pragma(inline, true)
-        static foreach(i; 0 .. T.sizeof/16)
+        foreach(i; 0 .. T.sizeof/16)
         {
             Dmemcpy((cast(S!16*)dst) + i, (cast(const S!16*)src) + i);
         }
@@ -339,7 +332,7 @@ if (is(T == struct))
     }
     else static if (T.sizeof < 64 && !isPowerOf2(T.sizeof))
     {
-        pragma(inline, true)
+        //pragma(inline, true)
         DmemcpyUnsafe(dst, src);
         return;
     }
@@ -362,21 +355,21 @@ if (is(T == struct))
 
 void Dmemmove_back_lt64(void *d, const(void) *s, size_t n)
 {
-    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
-    assert(n < 64);
     if (n & 32)
     {
         n -= 32;
-        void16 xmm0 = loadUnaligned(cast(const void16*)(s+n+16));
-        void16 xmm1 = loadUnaligned(cast(const void16*)(s+n));
-
-        storeUnaligned(cast(void16*)(d+n+16), xmm0);
-        storeUnaligned(cast(void16*)(d+n), xmm1);
+        // IMPORTANT(stefanos): Don't call _store* functions as they copy forward.
+        // First load both values, _then_ store.
+        float4 xmm0 = load16_sse(cast(const float*)(s+n+16));
+        float4 xmm1 = load16_sse(cast(const float*)(s+n));
+        store16_sse(cast(float*)(d+n+16), xmm0);
+        store16_sse(cast(float*)(d+n), xmm1);
     }
     if (n & 16)
     {
         n -= 16;
-        storeUnaligned(cast(void16*)(d+n), loadUnaligned(cast(const void16*)(s+n)));
+        float4 xmm0 = load16_sse(cast(const float*)(s+n));
+        store16_sse(cast(float*)(d+n), xmm0);
     }
     if (n & 8)
     {
@@ -403,7 +396,6 @@ void Dmemmove_back_lt64(void *d, const(void) *s, size_t n)
 void Dmemmove_back(void *d, const(void) *s, size_t n)
 {
     import core.stdc.stdio: printf;
-    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
 
 START:
     if (n < 64)
@@ -415,10 +407,14 @@ START:
     d += n;
     if (n < 128)
     {
-        storeUnaligned(cast(void16*)(d-0x10), loadUnaligned(cast(const void16*)(s-0x10)));
-        storeUnaligned(cast(void16*)(d-0x20), loadUnaligned(cast(const void16*)(s-0x20)));
-        storeUnaligned(cast(void16*)(d-0x30), loadUnaligned(cast(const void16*)(s-0x30)));
-        storeUnaligned(cast(void16*)(d-0x40), loadUnaligned(cast(const void16*)(s-0x40)));
+        float4 xmm0 = load16_sse(cast(const float*)(s-0x10));
+        float4 xmm1 = load16_sse(cast(const float*)(s-0x20));
+        float4 xmm2 = load16_sse(cast(const float*)(s-0x30));
+        float4 xmm3 = load16_sse(cast(const float*)(s-0x40));
+        store16_sse(cast(float*)(d-0x10), xmm0);
+        store16_sse(cast(float*)(d-0x20), xmm1);
+        store16_sse(cast(float*)(d-0x30), xmm2);
+        store16_sse(cast(float*)(d-0x40), xmm3);
         // NOTE(stefanos): We can't do the standard trick where we just go back enough bytes
         // so that we can move the last bytes with a 64-byte move even if they're less than 64.
         // To do that, we have to _not_ have overlap.
@@ -428,24 +424,28 @@ START:
         Dmemmove_back_lt64(d, s, n);
         return;
     }
-    uint mod = cast(ulong)d & 31;
-    if (mod)
+    uint rem = cast(ulong)d & 31;
+    if (rem)
     {
         // NOTE(stefanos): Again, can't use the standard trick because of overlap.
-        Dmemmove_back_lt64(d-mod, s-mod, mod);
-        s -= mod;
-        d -= mod;
-        n -= mod;
+        Dmemmove_back_lt64(d-rem, s-rem, rem);
+        s -= rem;
+        d -= rem;
+        n -= rem;
     }
     while (n >= 128)
     {
         // NOTE(stefanos): No problem with the overlap here since
-        // we never use overlapped bytes.
+        // we never use overlapped bytes. But, we should still copy backwards.
         // TODO(stefanos): Explore prefetching.
-        *(cast(void32*)(d-0x20)) = *(cast(const void32*)(s-0x20));
-        *(cast(void32*)(d-0x40)) = *(cast(const void32*)(s-0x40));
-        *(cast(void32*)(d-0x60)) = *(cast(const void32*)(s-0x60));
-        *(cast(void32*)(d-0x80)) = *(cast(const void32*)(s-0x80));
+        store16_sse(cast(float*)(d-0x10), load16_sse(cast(const float*)(s-0x10)));
+        store16_sse(cast(float*)(d-0x20), load16_sse(cast(const float*)(s-0x20)));
+        store16_sse(cast(float*)(d-0x30), load16_sse(cast(const float*)(s-0x30)));
+        store16_sse(cast(float*)(d-0x40), load16_sse(cast(const float*)(s-0x40)));
+        store16_sse(cast(float*)(d-0x50), load16_sse(cast(const float*)(s-0x50)));
+        store16_sse(cast(float*)(d-0x60), load16_sse(cast(const float*)(s-0x60)));
+        store16_sse(cast(float*)(d-0x70), load16_sse(cast(const float*)(s-0x70)));
+        store16_sse(cast(float*)(d-0x80), load16_sse(cast(const float*)(s-0x80)));
         s -= 128;
         d -= 128;
         n -= 128;
@@ -461,21 +461,18 @@ START:
     }
 }
 
-pragma(inline, true)
 void Dmemmove_forw_lt64(void *d, const(void) *s, size_t n)
 {
-    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
     if (n & 32)
     {
-        storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
-        storeUnaligned(cast(void16*)(d+16), loadUnaligned(cast(const void16*)(s+16)));
+        store32_sse(d, s);
         n -= 32;
         s += 32;
         d += 32;
     }
     if (n & 16)
     {
-        storeUnaligned(cast(void16*)(d), loadUnaligned(cast(const void16*)(s)));
+        store16_sse(d, load16_sse(s));
         n -= 16;
         s += 16;
         d += 16;
@@ -512,9 +509,6 @@ void Dmemmove_forw_lt64(void *d, const(void) *s, size_t n)
 // IMPORTANT(stefanos): memmove is supposed to return the dest
 void Dmemmove_forw(void *d, const(void) *s, size_t n)
 {
-    import core.stdc.stdio: printf;
-    import core.simd: void16, void32, loadUnaligned, storeUnaligned;
-
 START:
     if (n < 64)
     {
@@ -524,10 +518,7 @@ START:
     if (n < 128)
     {
         // We know it's >= 64, so move the first 64 bytes freely.
-        storeUnaligned(cast(void16*)d, loadUnaligned(cast(const void16*)s));
-        storeUnaligned(cast(void16*)(d+0x10), loadUnaligned(cast(const void16*)(s+0x10)));
-        storeUnaligned(cast(void16*)(d+0x20), loadUnaligned(cast(const void16*)(s+0x20)));
-        storeUnaligned(cast(void16*)(d+0x30), loadUnaligned(cast(const void16*)(s+0x30)));
+        store64_sse(d, s);
         // NOTE(stefanos): We can't do the standard trick where we just go forward enough bytes
         // so that we can move the last bytes with a 64-byte move even if they're less than 64.
         // To do that, we have to _not_ have overlap.
@@ -537,23 +528,21 @@ START:
         Dmemmove_forw_lt64(d, s, n);
         return;
     }
-    uint mod = cast(ulong)d & 31;
-    if (mod)
+    uint rem = cast(ulong)d & 31;
+    if (rem)
     {
         // NOTE(stefanos): Again, can't use the standard trick because of overlap.
-        Dmemmove_forw_lt64(d, s, 32-mod);
-        s += 32 - mod;
-        d += 32 - mod;
-        n -= 32 - mod;
+        Dmemmove_forw_lt64(d, s, 32-rem);
+        s += 32 - rem;
+        d += 32 - rem;
+        n -= 32 - rem;
     }
+
     while (n >= 128)
     {
         // NOTE(stefanos): No problem with the overlap here since
         // we never use overlapped bytes.
-        *(cast(void32*)d) = *(cast(const void32*)s);
-        *(cast(void32*)(d+0x20)) = *(cast(const void32*)(s+0x20));
-        *(cast(void32*)(d+0x40)) = *(cast(const void32*)(s+0x40));
-        *(cast(void32*)(d+0x60)) = *(cast(const void32*)(s+0x60));
+        store128_sse(d, s);
         s += 128;
         d += 128;
         n -= 128;
